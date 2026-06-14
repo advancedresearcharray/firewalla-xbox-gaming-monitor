@@ -1,0 +1,57 @@
+{
+  "maxTargetsPerRun": 10,
+  "maxLiveTargetsPerRun": 4,
+  "maxHops": 18,
+  "probeIntervalSec": 300,
+  "regionProbes": [
+    {
+      "id": "azure-central-us",
+      "region": "Central US",
+      "hostname": "mpsqosprod.centralus.cloudapp.azure.com",
+      "purpose": "CoD/Azure QoS probe — central US datacenter"
+    },
+    {
+      "id": "azure-east-us",
+      "region": "East US",
+      "hostname": "mpsqosprod.eastus.cloudapp.azure.com",
+      "purpose": "CoD/Azure QoS probe — east US datacenter"
+    },
+    {
+      "id": "azure-west-us",
+      "region": "West US",
+      "hostname": "mpsqosprod.westus.cloudapp.azure.com",
+      "purpose": "CoD/Azure QoS probe — west US datacenter"
+    },
+    {
+      "id": "azure-west-europe",
+      "region": "West Europe",
+      "hostname": "mpsqosprod.westeurope.cloudapp.azure.com",
+      "purpose": "CoD/Azure QoS probe — EU datacenter"
+    },
+    {
+      "id": "azure-japan-east",
+      "region": "Japan East",
+      "hostname": "mpsqosprod.japaneast.cloudapp.azure.com",
+      "purpose": "CoD/Azure QoS probe — Asia-Pacific"
+    },
+    {
+      "id": "azure-brazil-south",
+      "region": "Brazil South",
+      "hostname": "mpsqosprod.brazilsouth.cloudapp.azure.com",
+      "purpose": "CoD/Azure QoS probe — South America"
+    }
+  ],
+  "scoring": {
+    "pingSamples": 3,
+    "pingTieBreakMs": 3,
+    "hopWeightMs": 0.8,
+    "lossPenaltyMs": 8,
+    "timeoutPenaltyMs": 12,
+    "bottleneckWeightMs": 1.2
+  },
+  "enforcement": {
+    "slowPathDeltaMs": 5,
+    "slowRegionDeltaMs": 35,
+    "enabledByDefault": true
+  }
+}

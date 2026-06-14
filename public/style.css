@@ -1,0 +1,387 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0f14;
+  --panel: #121923;
+  --panel-2: #182230;
+  --text: #e8eef7;
+  --muted: #8ea0b8;
+  --green: #3dd68c;
+  --red: #ff6b6b;
+  --blue: #4dabf7;
+  --xbox: #107c10;
+  --border: #243044;
+  --accent: #6c5ce7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: radial-gradient(circle at top, #152033 0%, var(--bg) 55%);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(11, 15, 20, 0.85);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.logo {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.5rem;
+  background: linear-gradient(135deg, var(--xbox), #1db954);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.status-pill {
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.status-pill.online {
+  border-color: rgba(61, 214, 140, 0.35);
+  color: var(--green);
+}
+
+.status-pill.offline {
+  border-color: rgba(255, 107, 107, 0.35);
+  color: var(--red);
+}
+
+main {
+  padding: 1.25rem;
+  display: grid;
+  gap: 1rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1rem 1.1rem;
+}
+
+.card h2 {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.metric {
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.metric small {
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.route-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.route-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.route-blocked {
+  margin-bottom: 0.75rem;
+}
+
+.blocked-list {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.blocked-list code {
+  color: var(--red);
+  font-size: 0.82rem;
+}
+
+.route-header h2 {
+  margin: 0;
+}
+
+.route-recs {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.route-rec {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.88rem;
+}
+
+.route-rec-high {
+  border-color: var(--green);
+  background: rgba(74, 222, 128, 0.08);
+}
+
+.route-rec-med {
+  border-color: #fbbf24;
+}
+
+.route-subhead {
+  font-size: 0.95rem;
+  margin: 1rem 0 0.4rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.route-ranking-table {
+  margin-bottom: 0.5rem;
+}
+
+tr.route-best td {
+  background: rgba(74, 222, 128, 0.06);
+}
+
+tr.route-best td:first-child {
+  box-shadow: inset 3px 0 0 var(--green);
+}
+
+.eff-excellent { color: var(--green); font-weight: 600; }
+.eff-good { color: #4ade80; font-weight: 600; }
+.eff-fair { color: #fbbf24; font-weight: 600; }
+.eff-poor { color: var(--red); font-weight: 600; }
+.eff-unknown { color: var(--muted); }
+
+.policy-card h2 {
+  margin-bottom: 0.25rem;
+}
+
+.policy-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.policy-btn {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.policy-btn:hover {
+  border-color: var(--accent);
+}
+
+.policy-btn.active {
+  border-color: var(--green);
+  background: rgba(61, 214, 140, 0.12);
+}
+
+.policy-status {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0 0 0.75rem;
+}
+
+.role-legend {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.role-legend ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.role-name {
+  font-weight: 600;
+}
+
+.tier-critical { color: #f87171; font-weight: 600; }
+.tier-high { color: #4dabf7; font-weight: 600; }
+.tier-normal { color: var(--muted); font-weight: 600; }
+.tier-low { color: #a78bfa; font-weight: 600; }
+
+.destinations-card h2 {
+  margin-bottom: 0.25rem;
+}
+
+.section-note {
+  margin: 0 0 0.85rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.muted-ip {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.kind-active {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.kind-recent {
+  color: var(--blue);
+  font-weight: 600;
+}
+
+.kind-dns {
+  color: #c084fc;
+  font-weight: 600;
+}
+
+.lat-good {
+  color: var(--green);
+  font-weight: 600;
+}
+
+.lat-warn {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.lat-bad {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.lat-unknown {
+  color: var(--muted);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 1rem;
+}
+
+@media (max-width: 900px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chart-wrap {
+  height: 180px;
+  position: relative;
+}
+
+canvas {
+  width: 100%;
+  height: 100%;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.45rem 0.35rem;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.dir-out {
+  color: var(--blue);
+}
+
+.dir-in {
+  color: var(--green);
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.error-banner {
+  display: none;
+  background: rgba(255, 107, 107, 0.12);
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  color: #ffd4d4;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+}
+
+.error-banner.visible {
+  display: block;
+}
+
+footer {
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-align: center;
+  padding: 1rem;
+}

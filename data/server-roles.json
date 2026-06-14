@@ -1,0 +1,129 @@
+{
+  "tiers": {
+    "critical": {
+      "label": "Critical",
+      "dscp": "EF",
+      "description": "Matchmaking, Xbox Live session — keep lowest latency"
+    },
+    "high": {
+      "label": "High",
+      "dscp": "AF41",
+      "description": "Game data, CDN assets, cloud gameplay backends"
+    },
+    "normal": {
+      "label": "Normal",
+      "dscp": "BE",
+      "description": "Standard services — default handling"
+    },
+    "low": {
+      "label": "Background",
+      "dscp": "CS1",
+      "description": "Telemetry, analytics, connectivity probes — safe to limit"
+    }
+  },
+  "profiles": {
+    "balanced": {
+      "label": "Balanced",
+      "description": "Default — Xbox device priority only, no per-server shaping"
+    },
+    "competitive": {
+      "label": "Competitive",
+      "description": "Boost matchmaking & Xbox Live; deprioritize telemetry and probes",
+      "overrides": {
+        "critical": "critical",
+        "high": "high",
+        "normal": "normal",
+        "low": "low"
+      }
+    },
+    "download": {
+      "label": "Download / patch",
+      "description": "Boost CDN asset servers for faster patches",
+      "overrides": {
+        "game-assets": "critical",
+        "telemetry": "low",
+        "connectivity-probe": "low"
+      }
+    }
+  },
+  "rules": [
+    {
+      "id": "matchmaking",
+      "match": ["playfabapi.com", "playfab.com"],
+      "role": "Matchmaking / sessions",
+      "tier": "critical",
+      "detail": "PlayFab — lobby creation, match assignment, session state"
+    },
+    {
+      "id": "game-assets",
+      "match": ["cod-assets.cdn.callofduty.com", "callofduty.com", "activision.com"],
+      "matchExclude": ["ingest.", "datax."],
+      "role": "Game assets / CDN",
+      "tier": "high",
+      "detail": "Maps, modes, textures, patch chunks — bandwidth-heavy but not latency-sensitive mid-match"
+    },
+    {
+      "id": "telemetry",
+      "match": ["ingest.datax.activision.com", "events.data.microsoft.com", "v10.events", "v20.events"],
+      "role": "Telemetry / analytics",
+      "tier": "low",
+      "detail": "Usage metrics and diagnostics — does not affect gameplay if delayed"
+    },
+    {
+      "id": "xbox-live",
+      "match": ["xboxlive.com", "xbox.com", "mp.microsoft.com", "userpresence.xboxlive.com", "multiplayeractivity.xboxlive.com"],
+      "role": "Xbox Live core",
+      "tier": "critical",
+      "detail": "Auth, presence, friends, party, multiplayer activity"
+    },
+    {
+      "id": "azure-qos",
+      "match": ["cloudapp.azure.com", "mpsqosprod"],
+      "role": "Azure QoS / region probes",
+      "tier": "high",
+      "detail": "Datacenter latency probes for matchmaking region selection"
+    },
+    {
+      "id": "notifications",
+      "match": ["wns.windows.com", "notify.windows.com"],
+      "role": "Push notifications",
+      "tier": "normal",
+      "detail": "Background Windows/Xbox notification channel"
+    },
+    {
+      "id": "gamepass",
+      "match": ["gamepass.com", "catalog.gamepass.com"],
+      "role": "Game Pass catalog",
+      "tier": "normal",
+      "detail": "Store/catalog browsing — not needed in active match"
+    },
+    {
+      "id": "connectivity-probe",
+      "match": ["msftconnecttest.com", "msftncsi.com", "connectivitycheck"],
+      "role": "Connectivity check",
+      "tier": "low",
+      "detail": "Captive portal / NCSI probes"
+    },
+    {
+      "id": "tls-pki",
+      "match": ["pki.goog", "ocsp.", "crl."],
+      "role": "Certificate validation",
+      "tier": "normal",
+      "detail": "OCSP/CRL for HTTPS — brief bursts"
+    },
+    {
+      "id": "windows-update",
+      "match": ["windowsupdate.com", "download.windowsupdate.com", "ctldl.windowsupdate.com"],
+      "role": "Windows Update",
+      "tier": "low",
+      "detail": "System updates — deprioritize during competitive play"
+    },
+    {
+      "id": "generic-ssl",
+      "match": ["akamai", "cloudfront", "fastly", "edgekey.net"],
+      "role": "CDN edge",
+      "tier": "normal",
+      "detail": "Generic CDN — role depends on parent app"
+    }
+  ]
+}

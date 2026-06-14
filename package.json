@@ -1,0 +1,19 @@
+{
+  "name": "firewalla-xbox-gaming-monitor",
+  "version": "1.0.0",
+  "description": "Xbox gaming traffic monitor for Firewalla — live dashboard, QoS, route selection",
+  "type": "module",
+  "main": "server.mjs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_ORG/firewalla-xbox-gaming-monitor"
+  },
+  "keywords": ["firewalla", "xbox", "gaming", "qos", "network", "monitor"],
+  "license": "MIT",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Xbox Traffic Monitor</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <div class="logo">X</div>
+        <div>
+          <h1 id="title">Xbox Traffic Monitor</h1>
+          <div class="subtitle" id="subtitle">Polling Firewalla…</div>
+        </div>
+      </div>
+      <div class="status-pill offline" id="online-pill">Offline</div>
+    </header>
+
+    <main>
+      <div class="error-banner" id="error-banner"></div>
+
+      <section class="grid">
+        <article class="card">
+          <h2>Download</h2>
+          <div class="metric" id="metric-down">— <small>Kbps</small></div>
+        </article>
+        <article class="card">
+          <h2>Upload</h2>
+          <div class="metric" id="metric-up">— <small>Kbps</small></div>
+        </article>
+        <article class="card">
+          <h2>Packets / 3s</h2>
+          <div class="metric" id="metric-pkts">—</div>
+        </article>
+        <article class="card">
+          <h2>Active connections</h2>
+          <div class="metric" id="metric-conns">—</div>
+        </article>
+        <article class="card">
+          <h2>WAN latency</h2>
+          <div class="metric" id="metric-latency">— <small>ms</small></div>
+        </article>
+        <article class="card">
+          <h2>Gaming mode</h2>
+          <div class="metric" id="metric-gaming">—</div>
+        </article>
+      </section>
+
+      <section class="split">
+        <article class="card">
+          <h2>Throughput history</h2>
+          <div class="chart-wrap">
+            <canvas id="chart" width="800" height="180"></canvas>
+          </div>
+        </article>
+        <article class="card">
+          <h2>Device</h2>
+          <div class="meta" id="device-meta">—</div>
+          <h2 style="margin-top: 1rem">SQM (CAKE)</h2>
+          <div class="meta" id="sqm-meta">—</div>
+        </article>
+      </section>
+
+      <section class="card policy-card">
+        <h2>Traffic policy</h2>
+        <p class="section-note">Classify each server by function and optionally shape Xbox traffic by role using Firewalla DSCP + CAKE.</p>
+        <div class="policy-buttons" id="policy-buttons">
+          <button type="button" class="policy-btn" data-profile="balanced">Balanced</button>
+          <button type="button" class="policy-btn" data-profile="competitive">Competitive</button>
+          <button type="button" class="policy-btn" data-profile="download">Download / patch</button>
+        </div>
+        <p class="policy-status" id="policy-status">Profile: balanced</p>
+        <details class="role-legend">
+          <summary>What each server role means</summary>
+          <ul id="role-legend-list">
+            <li><span class="tier-critical">Critical</span> — Matchmaking, Xbox Live (lowest latency)</li>
+            <li><span class="tier-high">High</span> — Game CDN, Azure gameplay backends</li>
+            <li><span class="tier-normal">Normal</span> — Notifications, cert checks</li>
+            <li><span class="tier-low">Background</span> — Telemetry, update probes (safe to limit)</li>
+          </ul>
+        </details>
+      </section>
+
+      <section class="card route-card">
+        <div class="route-header">
+          <h2>Route efficiency</h2>
+          <div class="route-actions">
+            <button type="button" class="policy-btn route-enforce-btn active" id="route-enforce-on" data-enabled="true">Enforce best paths</button>
+            <button type="button" class="policy-btn route-enforce-btn" id="route-enforce-off" data-enabled="false">Allow all paths</button>
+            <button type="button" class="policy-btn" id="route-probe-btn">Probe routes now</button>
+          </div>
+        </div>
+        <p class="section-note" id="route-enforce-status">Firewall blocks slow paths for Xbox — forces lowest-latency routes.</p>
+        <p class="section-note" id="route-note">Compares every IPv4/IPv6 path through the internet and picks the lowest-latency route to each datacenter and game server.</p>
+        <div id="route-recommendations" class="route-recs"></div>
+        <div id="route-blocked" class="route-blocked"></div>
+        <h3 class="route-subhead">Datacenter ranking</h3>
+        <table class="route-ranking-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Region</th>
+              <th>Ping</th>
+              <th>Stack</th>
+              <th>Hops</th>
+              <th>Quality</th>
+            </tr>
+          </thead>
+          <tbody id="region-ranking-body">
+            <tr><td colspan="6">Run a probe to rank datacenter paths…</td></tr>
+          </tbody>
+        </table>
+        <h3 class="route-subhead">All probed paths</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Target</th>
+              <th>Chosen path</th>
+              <th>Ping</th>
+              <th>Hops</th>
+              <th>Score</th>
+              <th>Quality</th>
+            </tr>
+          </thead>
+          <tbody id="routes-body">
+            <tr><td colspan="6">Run a route probe to analyze paths…</td></tr>
+          </tbody>
+        </table>
+        <details class="role-legend">
+          <summary>How path enforcement works</summary>
+          <p class="section-note">After probing, Firewalla drops Xbox traffic to slower alternate IPs (e.g. slow IPv6 when IPv4 is faster) and to datacenter probe endpoints more than 35 ms worse than your best region. The Xbox must retry on the fast path.</p>
+        </details>
+      </section>
+
+      <section class="card destinations-card">
+        <h2>Connecting to</h2>
+        <p class="section-note">Server function, priority tier, and latency (ICMP from Firewalla).</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Function</th>
+              <th>Host / service</th>
+              <th>Priority</th>
+              <th>Latency</th>
+              <th>Route</th>
+              <th>Port</th>
+            </tr>
+          </thead>
+          <tbody id="destinations-body">
+            <tr><td colspan="7">Waiting for data…</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="split">
+        <article class="card">
+          <h2>Live packet flows (3s sample)</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Dir</th>
+                <th>Host / IP</th>
+                <th>Latency</th>
+                <th>Bytes</th>
+              </tr>
+            </thead>
+            <tbody id="flows-body">
+              <tr><td colspan="4">Waiting for data…</td></tr>
+            </tbody>
+          </table>
+        </article>
+        <article class="card">
+          <h2>Active connections</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Proto</th>
+                <th>State</th>
+                <th>Dir</th>
+                <th>Host / IP</th>
+                <th>Port</th>
+                <th>Latency</th>
+              </tr>
+            </thead>
+            <tbody id="conns-body">
+              <tr><td colspan="6">Waiting for data…</td></tr>
+            </tbody>
+          </table>
+        </article>
+        <article class="card">
+          <h2>Recent flows (Firewalla)</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Dir</th>
+                <th>Host / IP</th>
+                <th>Up</th>
+                <th>Down</th>
+              </tr>
+            </thead>
+            <tbody id="recent-body">
+              <tr><td colspan="4">Waiting for data…</td></tr>
+            </tbody>
+          </table>
+        </article>
+      </section>
+    </main>
+
+    <footer id="footer">Updated —</footer>
+    <script src="/app.js"></script>
+  </body>
+</html>

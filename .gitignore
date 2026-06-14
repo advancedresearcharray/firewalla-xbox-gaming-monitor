@@ -1,0 +1,8 @@
+node_modules/
+.env
+*.log
+.DS_Store
+.firecrawl/
+*.swp
+.gaming.conf.local
+deploy/gaming.conf.local

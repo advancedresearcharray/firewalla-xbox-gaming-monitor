@@ -1,0 +1,13 @@
+# Copy to /home/pi/gaming-tools/gaming.conf on Firewalla
+# Used by all remote/*.sh scripts
+
+XBOX_IP="192.168.1.100"
+XBOX_MAC="aa:bb:cc:dd:ee:ff"
+XBOX_NAME="Xbox"
+
+# LAN bridge on Gold/Purple (usually br0 or br2)
+LAN_IF="br2"
+
+# SQM interfaces (Gold with dual-WAN / ifb shaping)
+UPLOAD_IF="ifb0"
+DOWNLOAD_IF="ifb1"

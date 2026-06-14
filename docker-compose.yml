@@ -1,0 +1,23 @@
+services:
+  dashboard:
+    image: node:20-bookworm-slim
+    container_name: xbox-gaming-monitor
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./:/app:ro
+      - ./deploy/ssh:/root/.ssh:ro
+    environment:
+      PORT: "9377"
+      POLL_MS: "2500"
+      FIREWALLA_HOST: "${FIREWALLA_HOST:-192.168.1.1}"
+      FIREWALLA_USER: "${FIREWALLA_USER:-pi}"
+      FIREWALLA_SSH_KEY: /root/.ssh/firewalla-gaming-monitor
+      REMOTE_SCRIPT: /home/pi/gaming-tools/gaming-snapshot.sh
+      REMOTE_QOS: /home/pi/gaming-tools/gaming-role-qos.sh
+      REMOTE_ROUTE: /home/pi/gaming-tools/gaming-route-probe.sh
+      REMOTE_ENFORCE: /home/pi/gaming-tools/gaming-route-enforce.sh
+      XBOX_IP: "${XBOX_IP:-192.168.1.100}"
+    ports:
+      - "${PORT:-9377}:9377"
+    command: ["node", "server.mjs"]
