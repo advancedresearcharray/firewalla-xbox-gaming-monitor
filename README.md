@@ -37,7 +37,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 Enable **SSH** on Firewalla (App → Settings → Advanced → SSH).
 
 ```bash
-git clone https://github.com/YOUR_ORG/firewalla-xbox-gaming-monitor.git
+git clone https://github.com/advancedresearcharray/firewalla-xbox-gaming-monitor.git
 cd firewalla-xbox-gaming-monitor
 
 # Copy scripts to Firewalla

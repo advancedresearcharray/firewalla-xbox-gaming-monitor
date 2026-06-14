@@ -147,5 +147,3 @@ Thanks,
 There is currently **no public third-party App submission portal** like iOS App Store. Community tools for Gold/Purple typically distribute via GitHub + SSH install, which is what this repo provides. For official integration, email or forum contact with Firewalla is the recommended path.
 
 ---
-
-**Repo maintainer note:** Replace `YOUR_ORG` with your GitHub org/user before publishing.

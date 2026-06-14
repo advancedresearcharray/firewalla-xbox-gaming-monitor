@@ -6,3 +6,4 @@ node_modules/
 *.swp
 .gaming.conf.local
 deploy/gaming.conf.local
+dist/
