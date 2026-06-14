@@ -28,7 +28,7 @@ An **optional** Xbox gaming network monitor that:
 ### Step 1 — Install Firewalla scripts (2 min)
 
 ```bash
-git clone https://github.com/YOUR_ORG/firewalla-xbox-gaming-monitor.git
+git clone https://github.com/advancedresearcharray/firewalla-xbox-gaming-monitor.git
 cd firewalla-xbox-gaming-monitor
 scp -r remote data/route-probes.json scripts/install-on-firewalla.sh pi@<firewalla>:/tmp/gaming/
 ssh pi@<firewalla> 'bash /tmp/gaming/install-on-firewalla.sh'
@@ -122,7 +122,7 @@ Hi Firewalla team,
 We've built an open-source Xbox gaming traffic monitor that uses Firewalla Gold
 for connection visibility, QoS, and route optimization:
 
-  https://github.com/YOUR_ORG/firewalla-xbox-gaming-monitor
+  https://github.com/advancedresearcharray/firewalla-xbox-gaming-monitor
 
 It installs optional scripts under /home/pi/gaming-tools/ and does not modify
 Firewalla core. See docs/FIREWALLA-REVIEW.md for a 15-minute test plan.

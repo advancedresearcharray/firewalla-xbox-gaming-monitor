@@ -6,7 +6,7 @@
   "main": "server.mjs",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_ORG/firewalla-xbox-gaming-monitor"
+    "url": "https://github.com/advancedresearcharray/firewalla-xbox-gaming-monitor"
   },
   "keywords": ["firewalla", "xbox", "gaming", "qos", "network", "monitor"],
   "license": "MIT",

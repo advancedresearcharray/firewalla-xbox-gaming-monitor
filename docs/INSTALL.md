@@ -21,7 +21,7 @@ Two parts:
 ### Install
 
 ```bash
-git clone https://github.com/YOUR_ORG/firewalla-xbox-gaming-monitor.git
+git clone https://github.com/advancedresearcharray/firewalla-xbox-gaming-monitor.git
 cd firewalla-xbox-gaming-monitor
 chmod +x scripts/*.sh remote/*.sh
 
