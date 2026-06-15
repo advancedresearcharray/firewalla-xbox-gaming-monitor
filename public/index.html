@@ -104,6 +104,36 @@
         </table>
       </section>
 
+      <section class="card processor-card">
+        <div class="route-header">
+          <h2>Processor</h2>
+          <button type="button" class="policy-btn" id="processor-tune-btn">Apply tune</button>
+        </div>
+        <p class="section-note" id="processor-status">Firewalla load-aware scheduling — backs off probes when CPU is stressed.</p>
+        <div class="network-health-grid processor-grid">
+          <article class="nh-metric-card">
+            <h3>Health</h3>
+            <div class="nh-metric processor-health" id="proc-health">—</div>
+            <p class="nh-detail" id="proc-health-detail">—</p>
+          </article>
+          <article class="nh-metric-card">
+            <h3>Load (1 / 5 / 15)</h3>
+            <div class="nh-metric nh-metric-sm" id="proc-load">—</div>
+            <p class="nh-detail" id="proc-mem">—</p>
+          </article>
+          <article class="nh-metric-card">
+            <h3>Poll interval</h3>
+            <div class="nh-metric nh-metric-sm" id="proc-poll">—</div>
+            <p class="nh-detail" id="proc-defer">—</p>
+          </article>
+          <article class="nh-metric-card">
+            <h3>Route folding</h3>
+            <div class="nh-metric nh-metric-sm" id="proc-folding">—</div>
+            <p class="nh-detail" id="proc-folding-detail">—</p>
+          </article>
+        </div>
+      </section>
+
       <section class="card policy-card">
         <h2>Traffic policy</h2>
         <p class="section-note">Classify each server by function and optionally shape Xbox traffic by role using Firewalla DSCP + CAKE.</p>

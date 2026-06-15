@@ -38,13 +38,18 @@ import {
   mergeNetworkHealth,
   networkHealthSummary,
 } from "./lib/network-health.mjs";
+import {
+  buildProcessorTelemetry,
+  encodeRemotePayload,
+} from "./lib/processor-tune.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "public");
 const routeConfig = loadRouteProbesConfig();
 
 const PORT = Number(process.env.PORT || 9377);
-const POLL_MS = Number(process.env.POLL_MS || 2500);
+const BASE_POLL_MS = Number(process.env.POLL_MS || 2500);
+const FIREWALLA_CORES = Number(process.env.FIREWALLA_CORES || 4);
 const ROUTE_PROBE_MS = (routeConfig.probeIntervalSec || 300) * 1000;
 const FIREWALLA_HOST = process.env.FIREWALLA_HOST || "";
 const FIREWALLA_USER = process.env.FIREWALLA_USER || "pi";
@@ -65,6 +70,12 @@ const REMOTE_NAT =
   process.env.REMOTE_NAT || "/home/pi/gaming-tools/gaming-nat-check.sh";
 const REMOTE_MTU =
   process.env.REMOTE_MTU || "/home/pi/gaming-tools/gaming-mtu-probe.sh";
+const REMOTE_PROCESSOR_TUNE =
+  process.env.REMOTE_PROCESSOR_TUNE ||
+  "/home/pi/gaming-tools/gaming-processor-tune.sh";
+const REMOTE_FIREWALLA_TUNE =
+  process.env.REMOTE_FIREWALLA_TUNE ||
+  "/home/pi/gaming-tools/gaming-firewalla-tune.sh";
 const XBOX_IP = process.env.XBOX_IP || "";
 const NETWORK_HEALTH_MS = Number(process.env.NETWORK_HEALTH_MS || 900000);
 
@@ -94,6 +105,12 @@ let networkHealthProbing = false;
 let networkHealthError = null;
 let networkHealthPromise = null;
 let previousNatType = null;
+let effectivePollMs = BASE_POLL_MS;
+let pollTimer = null;
+let processorTelemetry = null;
+let lastProcessorSample = 0;
+let processorTuneStatus = null;
+let processorTuneError = null;
 
 function adaptiveThresholds() {
   return getAdaptiveThresholds(routeConfig);
@@ -136,6 +153,12 @@ function getLatest() {
     summary: lastAiInsights?.summary || null,
     adaptiveThresholds: thresholds,
   };
+  if (processorTelemetry) {
+    data.processor = processorTelemetry;
+  }
+  if (lastRouteData && data.routeAnalysis) {
+    data.routeAnalysis.folding = processorTelemetry?.folding || null;
+  }
   return data;
 }
 
@@ -147,9 +170,9 @@ async function applyRouteEnforcement(routeData) {
     return { enabled: false, ...lastRouteEnforcement };
   }
   const tmp = `/tmp/xbox-route-enforce-${Date.now()}.json`;
-  const b64 = Buffer.from(JSON.stringify(lastRouteEnforcement)).toString("base64");
+  const encoded = encodeRemotePayload(lastRouteEnforcement);
   routeEnforceStatus = await sshRun(
-    `echo '${b64}' | base64 -d > ${tmp} && sudo ${REMOTE_ENFORCE} sync ${tmp} && rm -f ${tmp}`,
+    `${encoded.shellWrite(tmp)} && sudo ${REMOTE_ENFORCE} sync ${tmp} && rm -f ${tmp}`,
   );
   routeEnforceError = null;
   lastEnforcementSync = Date.now();
@@ -166,13 +189,14 @@ async function routeProbeOnce() {
       const enriched = enrichSnapshot(rawSnapshot, trafficProfile);
       const targets = buildRouteTargets(enriched, routeConfig);
       const tmpIn = `/tmp/xbox-route-in-${Date.now()}.json`;
-      const b64 = Buffer.from(JSON.stringify({ targets })).toString("base64");
+      const encoded = encodeRemotePayload({ targets });
       const out = await sshRun(
-        `echo '${b64}' | base64 -d > ${tmpIn} && bash ${REMOTE_ROUTE} ${tmpIn} && rm -f ${tmpIn}`,
+        `${encoded.shellWrite(tmpIn)} && bash ${REMOTE_ROUTE} ${tmpIn} && rm -f ${tmpIn}`,
       );
       lastRouteData = JSON.parse(out);
       lastRouteProbe = Date.now();
       routeError = null;
+      await sampleProcessorLoad();
       if (routeEnforcementEnabled) {
         try {
           await applyRouteEnforcement(lastRouteData);
@@ -195,6 +219,7 @@ async function routeProbeOnce() {
 
 function maybeScheduleRouteProbe() {
   if (routeProbing || !rawSnapshot) return;
+  if (processorTelemetry?.deferHeavyProbes) return;
   if (Date.now() - lastRouteProbe < ROUTE_PROBE_MS) return;
   routeProbeOnce().catch(() => {});
 }
@@ -247,8 +272,59 @@ async function networkHealthProbeOnce() {
 
 function maybeScheduleNetworkHealth() {
   if (networkHealthProbing || !rawSnapshot) return;
+  if (processorTelemetry?.deferHeavyProbes) return;
   if (Date.now() - lastNetworkHealthProbe < NETWORK_HEALTH_MS) return;
   networkHealthProbeOnce().catch(() => {});
+}
+
+async function sampleProcessorLoad() {
+  if (!FIREWALLA_HOST) return;
+  try {
+    const out = await sshRun("cat /proc/loadavg; grep -m1 MemAvailable /proc/meminfo");
+    const lines = out.split("\n");
+    const loadRaw = lines[0] || "";
+    const memLine = lines.find((l) => l.startsWith("MemAvailable:")) || "";
+    const memKb = Number((memLine.match(/(\d+)/) || [])[1]);
+    const memAvailableMb = Number.isFinite(memKb) ? Math.round(memKb / 1024) : null;
+    processorTelemetry = buildProcessorTelemetry({
+      loadRaw,
+      memAvailableMb,
+      basePollMs: BASE_POLL_MS,
+      cores: FIREWALLA_CORES,
+      routeData: lastRouteData,
+      snapshot: rawSnapshot ? enrichSnapshot(rawSnapshot, trafficProfile) : null,
+    });
+    effectivePollMs = processorTelemetry.pollMs;
+    lastProcessorSample = Date.now();
+  } catch (err) {
+    processorTelemetry = {
+      ...processorTelemetry,
+      health: { status: "unknown", detail: err instanceof Error ? err.message : String(err) },
+      pollMs: BASE_POLL_MS,
+      basePollMs: BASE_POLL_MS,
+      sampledAt: Date.now(),
+    };
+    effectivePollMs = BASE_POLL_MS;
+  }
+}
+
+async function applyProcessorTune() {
+  const parts = [];
+  try {
+    parts.push(await sshRun(`bash ${REMOTE_PROCESSOR_TUNE} apply`));
+    processorTuneError = null;
+  } catch (err) {
+    processorTuneError = err instanceof Error ? err.message : String(err);
+  }
+  try {
+    parts.push(await sshRun(`bash ${REMOTE_FIREWALLA_TUNE} apply`));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    processorTuneError = processorTuneError ? `${processorTuneError}; ${msg}` : msg;
+  }
+  processorTuneStatus = parts.join("\n");
+  await sampleProcessorLoad();
+  return { status: processorTuneStatus, error: processorTuneError, processor: processorTelemetry };
 }
 
 function contentType(filePath) {
@@ -366,9 +442,22 @@ async function pollOnce() {
   if (polling) return;
   polling = true;
   try {
+    if (Date.now() - lastProcessorSample > 30000) {
+      await sampleProcessorLoad();
+    }
     const out = await fetchSnapshot();
     rawSnapshot = JSON.parse(out);
     lastError = null;
+    if (processorTelemetry) {
+      processorTelemetry = buildProcessorTelemetry({
+        loadRaw: processorTelemetry.load?.raw || "",
+        memAvailableMb: processorTelemetry.memAvailableMb,
+        basePollMs: BASE_POLL_MS,
+        cores: FIREWALLA_CORES,
+        routeData: lastRouteData,
+        snapshot: enrichSnapshot(rawSnapshot, trafficProfile),
+      });
+    }
     recordSnapshot(enrichSnapshot(rawSnapshot, trafficProfile), lastRouteData);
     if (trafficProfile !== "balanced" && Date.now() - lastQosSync > 30000) {
       try {
@@ -427,7 +516,30 @@ const server = http.createServer(async (req, res) => {
       policySummary: policySummary(),
       hasData: Boolean(rawSnapshot),
       lastError,
+      processor: processorTelemetry,
+      effectivePollMs,
     });
+    return;
+  }
+
+  if (url.pathname === "/api/processor" && req.method === "GET") {
+    sendJson(res, 200, {
+      processor: processorTelemetry,
+      effectivePollMs,
+      basePollMs: BASE_POLL_MS,
+      tuneStatus: processorTuneStatus,
+      tuneError: processorTuneError,
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/processor-tune" && req.method === "POST") {
+    try {
+      const result = await applyProcessorTune();
+      sendJson(res, 200, result);
+    } catch (err) {
+      sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
     return;
   }
 
@@ -674,11 +786,11 @@ const server = http.createServer(async (req, res) => {
     });
     const push = () => {
       res.write(
-        `data: ${JSON.stringify({ data: getLatest(), lastError, trafficProfile, policy: loadPolicy(), policySummary: policySummary(), routeError, routeEnforceError, routeEnforcementEnabled, routeProbing, networkHealth: lastNetworkHealth, networkHealthSummary: networkHealthSummary(lastNetworkHealth), networkHealthError, networkHealthProbing })}\n\n`,
+        `data: ${JSON.stringify({ data: getLatest(), lastError, trafficProfile, policy: loadPolicy(), policySummary: policySummary(), routeError, routeEnforceError, routeEnforcementEnabled, routeProbing, networkHealth: lastNetworkHealth, networkHealthSummary: networkHealthSummary(lastNetworkHealth), networkHealthError, networkHealthProbing, processor: processorTelemetry, effectivePollMs })}\n\n`,
       );
     };
     push();
-    const timer = setInterval(push, POLL_MS);
+    const timer = setInterval(push, effectivePollMs);
     req.on("close", () => clearInterval(timer));
     return;
   }
@@ -704,7 +816,16 @@ if (trafficProfile !== "balanced") {
     lastError = `Profile restore: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
-setInterval(pollOnce, POLL_MS);
+function schedulePoll() {
+  if (pollTimer) clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => {
+    await pollOnce();
+    schedulePoll();
+  }, effectivePollMs);
+}
+
+await sampleProcessorLoad();
+schedulePoll();
 routeProbeOnce().catch(() => {});
 networkHealthProbeOnce().catch(() => {});
 

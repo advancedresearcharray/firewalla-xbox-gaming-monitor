@@ -32,6 +32,16 @@ const els = {
   routeProbeBtn: document.getElementById("route-probe-btn"),
   networkHealthBtn: document.getElementById("network-health-btn"),
   networkHealthStatus: document.getElementById("network-health-status"),
+  processorTuneBtn: document.getElementById("processor-tune-btn"),
+  processorStatus: document.getElementById("processor-status"),
+  procHealth: document.getElementById("proc-health"),
+  procHealthDetail: document.getElementById("proc-health-detail"),
+  procLoad: document.getElementById("proc-load"),
+  procMem: document.getElementById("proc-mem"),
+  procPoll: document.getElementById("proc-poll"),
+  procDefer: document.getElementById("proc-defer"),
+  procFolding: document.getElementById("proc-folding"),
+  procFoldingDetail: document.getElementById("proc-folding-detail"),
   nhNatType: document.getElementById("nh-nat-type"),
   nhNatDetail: document.getElementById("nh-nat-detail"),
   nhWanTopology: document.getElementById("nh-wan-topology"),
@@ -506,6 +516,109 @@ async function probeNetworkHealth() {
 
 els.networkHealthBtn?.addEventListener("click", probeNetworkHealth);
 
+function healthClass(status) {
+  if (status === "ok") return "proc-ok";
+  if (status === "busy") return "proc-busy";
+  if (status === "stressed") return "proc-stressed";
+  return "proc-unknown";
+}
+
+function renderProcessor(processor, effectivePollMs, tuning) {
+  if (!processor) {
+    els.procHealth.textContent = "—";
+    els.procHealth.className = "nh-metric processor-health proc-unknown";
+    els.procHealthDetail.textContent = "Waiting for first load sample…";
+    els.procLoad.textContent = "—";
+    els.procMem.textContent = "—";
+    els.procPoll.textContent = "—";
+    els.procDefer.textContent = "—";
+    els.procFolding.textContent = "—";
+    els.procFoldingDetail.textContent = "Run a route probe to fold path features.";
+    return;
+  }
+
+  const health = processor.health || {};
+  const status = health.status || "unknown";
+  els.procHealth.textContent = status;
+  els.procHealth.className = `nh-metric processor-health ${healthClass(status)}`;
+  els.procHealthDetail.textContent = health.detail || "—";
+
+  const load = processor.load;
+  els.procLoad.textContent = load
+    ? `${load.load1?.toFixed(2) ?? "?"} / ${load.load5?.toFixed(2) ?? "?"} / ${load.load15?.toFixed(2) ?? "?"}`
+    : "—";
+  els.procMem.textContent =
+    processor.memAvailableMb != null
+      ? `${processor.memAvailableMb} MB free`
+      : "Memory: —";
+
+  const pollMs = effectivePollMs ?? processor.pollMs;
+  const baseMs = processor.basePollMs;
+  els.procPoll.textContent =
+    pollMs != null ? `${(pollMs / 1000).toFixed(1)}s` : "—";
+  els.procDefer.textContent =
+    baseMs && pollMs && pollMs > baseMs
+      ? `Adaptive (+${Math.round(((pollMs - baseMs) / baseMs) * 100)}% vs ${baseMs / 1000}s base)`
+      : baseMs
+        ? `Base ${baseMs / 1000}s`
+        : "—";
+  if (processor.deferHeavyProbes) {
+    els.procDefer.textContent += " · heavy probes deferred";
+  }
+
+  const folding = processor.folding;
+  if (folding) {
+    const pres = folding.preservation != null ? `${(folding.preservation * 100).toFixed(1)}%` : "—";
+    const ratio = folding.compressionRatio != null ? `${folding.compressionRatio.toFixed(2)}×` : "—";
+    els.procFolding.textContent = `${pres} preserved`;
+    const parts = [
+      folding.method ? `Method: ${folding.method}` : null,
+      `Compression ${ratio}`,
+      folding.equivalenceClassCount != null
+        ? `${folding.equivalenceClassCount} latency classes`
+        : null,
+    ].filter(Boolean);
+    els.procFoldingDetail.textContent = parts.join(" · ");
+  } else {
+    els.procFolding.textContent = "No probe data";
+    els.procFoldingDetail.textContent = "Route folding applies after a route probe.";
+  }
+
+  if (tuning?.busy) {
+    els.processorStatus.textContent = "Applying processor tune on Firewalla…";
+  } else if (tuning?.error) {
+    els.processorStatus.textContent = `Tune error: ${tuning.error}`;
+  } else if (processor.sampledAt) {
+    els.processorStatus.textContent = `Last sample ${new Date(processor.sampledAt).toLocaleString()} — dimensional folding on telemetry, load-aware poll scheduling.`;
+  }
+}
+
+async function applyProcessorTune() {
+  els.processorTuneBtn.disabled = true;
+  els.processorTuneBtn.textContent = "Tuning…";
+  renderProcessor(null, null, { busy: true });
+  try {
+    const res = await fetch("/api/processor-tune", { method: "POST" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    renderProcessor(body.processor, body.processor?.pollMs, { error: body.error });
+    if (body.data) {
+      renderSnapshot({
+        data: body.data,
+        processor: body.processor,
+        effectivePollMs: body.processor?.pollMs,
+      });
+    }
+  } catch (err) {
+    renderProcessor(null, null, { error: err.message });
+  } finally {
+    els.processorTuneBtn.disabled = false;
+    els.processorTuneBtn.textContent = "Apply tune";
+  }
+}
+
+els.processorTuneBtn?.addEventListener("click", applyProcessorTune);
+
 function renderRouteAnalysis(analysis, routeProbing, enforcementEnabled) {
   if (routeProbing) {
     els.routeNote.textContent = "Probing all path candidates (IPv4 + IPv6)…";
@@ -654,9 +767,13 @@ function renderSnapshot(payload) {
     networkHealthSummary,
     networkHealthError,
     networkHealthProbing,
+    processor,
+    effectivePollMs,
   } = payload;
   setError(lastError || routeError || routeEnforceError);
   if (typeof reEnabled === "boolean") routeEnforcementEnabled = reEnabled;
+
+  renderProcessor(processor || data?.processor, effectivePollMs);
 
   renderNetworkHealth(
     networkHealth || data?.networkHealth,

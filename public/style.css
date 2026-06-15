@@ -307,6 +307,26 @@ tr.route-best td:first-child {
   line-height: 1.35;
 }
 
+.processor-health.proc-ok {
+  color: var(--green);
+}
+
+.processor-health.proc-busy {
+  color: #f0c040;
+}
+
+.processor-health.proc-stressed {
+  color: var(--red);
+}
+
+.processor-health.proc-unknown {
+  color: var(--muted);
+}
+
+.processor-grid .nh-metric-card {
+  min-height: 5.5rem;
+}
+
 .nh-nat-open { color: #3dd68c; }
 .nh-nat-moderate { color: #f0b429; }
 .nh-nat-strict { color: #ff6b6b; }

@@ -100,6 +100,9 @@ PY
 cmd_apply() {
   kill_stuck_shells
   apply_redis_tuning >"$STATE"
+  if [[ -x "${TOOLS_DIR}/gaming-processor-tune.sh" ]]; then
+    bash "${TOOLS_DIR}/gaming-processor-tune.sh" apply || true
+  fi
   cat "$STATE"
   log "Done — settings stored in Redis (app sync may override some global flags after reboot)"
 }
