@@ -13,26 +13,12 @@ if [[ -f "$CONF" ]]; then
   # shellcheck disable=SC1090
   source "$CONF"
 fi
-
-XBOX_IP="${XBOX_IP:-A.A.A.A6}"
-XBOX_MAC="${XBOX_MAC:-28:EA:0B:75:3B:75}"
+# shellcheck disable=SC1091
+source "${TOOLS_DIR}/xbox-scope.sh"
 
 log() { printf '[route-enforce] %s\n' "$*"; }
 
 need_root() { [[ "${EUID:-$(id -u)}" -eq 0 ]] || { echo "Run with sudo"; exit 1; }; }
-
-discover_xbox_ipv6() {
-  [[ -n "${XBOX_MAC:-}" ]] || return 0
-  local mac="${XBOX_MAC,,}"
-  ip -6 neigh show dev "${LAN_IF:-br2}" 2>/dev/null | while read -r line; do
-    [[ "${line,,}" == *"$mac"* ]] || continue
-    echo "$line" | awk '{print $1}'
-  done
-}
-
-xbox_sources() {
-  { echo "${XBOX_IP}"; discover_xbox_ipv6; } | sort -u | grep -v '^$' || true
-}
 
 ensure_ipsets() {
   ipset create "$IPSET4" hash:net family inet hashsize 4096 maxelem 65536 -exist
@@ -129,6 +115,7 @@ cmd_off() {
 cmd_sync() {
   need_root
   local json_file="${1:-}"
+  require_xbox_ip
   ensure_ipsets
   flush_ipsets
   local count
@@ -141,7 +128,7 @@ cmd_sync() {
     echo "blocked=${count}"
     echo "bestRegion=$(python3 -c "import json; print(json.load(open('$json_file')).get('bestRegion') or '')" 2>/dev/null || true)"
   } >"$STATE"
-  log "ON — blocking ${count} slow path destination(s) for Xbox"
+  log "ON — blocking ${count} slow path destination(s) for Xbox only (other devices unchanged)"
 }
 
 case "${1:-status}" in

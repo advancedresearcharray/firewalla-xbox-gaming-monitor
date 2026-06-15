@@ -30,8 +30,8 @@ An **optional** Xbox gaming network monitor that:
 ```bash
 git clone https://github.com/advancedresearcharray/firewalla-xbox-gaming-monitor.git
 cd firewalla-xbox-gaming-monitor
-scp -r remote data/route-probes.json scripts/install-on-firewalla.sh pi@<firewalla>:/tmp/gaming/
-ssh pi@<firewalla> 'bash /tmp/gaming/install-on-firewalla.sh'
+scp -r remote data/route-probes.json scripts/install-on-firewalla.sh pi@A.A.A.A:/tmp/gaming/
+ssh pi@A.A.A.A 'bash /tmp/gaming/install-on-firewalla.sh'
 ```
 
 Edit `/home/pi/gaming-tools/gaming.conf` with test Xbox IP/MAC.
@@ -39,7 +39,7 @@ Edit `/home/pi/gaming-tools/gaming.conf` with test Xbox IP/MAC.
 ### Step 2 — Smoke test collector (1 min)
 
 ```bash
-ssh pi@<firewalla> 'bash /home/pi/gaming-tools/gaming-snapshot.sh' | python3 -m json.tool | head -60
+ssh pi@A.A.A.A 'bash /home/pi/gaming-tools/gaming-snapshot.sh' | python3 -m json.tool | head -60
 ```
 
 **Expected:** JSON with `xbox`, `connections`, `destinations`, `wan`, `sqm` keys.
@@ -49,12 +49,12 @@ ssh pi@<firewalla> 'bash /home/pi/gaming-tools/gaming-snapshot.sh' | python3 -m 
 On a LAN Linux host:
 
 ```bash
-sudo FIREWALLA_HOST=<firewalla-ip> XBOX_IP=<xbox-ip> ./scripts/install-dashboard.sh
+sudo FIREWALLA_HOST=A.A.A.A XBOX_IP=B.B.B.B ./scripts/install-dashboard.sh
 ```
 
-Add generated SSH public key to `pi@<firewalla>:~/.ssh/authorized_keys`.
+Add generated SSH public key to `pi@A.A.A.A:~/.ssh/authorized_keys`.
 
-Open `http://<dashboard>:9377/` — verify live metrics with Xbox online.
+Open `http://C.C.C.C:9377/` — verify live metrics with Xbox online.
 
 ### Step 4 — Gaming session test (5 min)
 
@@ -66,9 +66,9 @@ Open `http://<dashboard>:9377/` — verify live metrics with Xbox online.
 ### Step 5 — Verify firewall rules (2 min)
 
 ```bash
-ssh pi@<firewalla> 'sudo /home/pi/gaming-tools/gaming-route-enforce.sh status'
-ssh pi@<firewalla> 'sudo iptables -L XBOX_ROUTE_ENFORCE -n -v'
-ssh pi@<firewalla> 'sudo ipset list xbox_route_block'
+ssh pi@A.A.A.A 'sudo /home/pi/gaming-tools/gaming-route-enforce.sh status'
+ssh pi@A.A.A.A 'sudo iptables -L XBOX_ROUTE_ENFORCE -n -v'
+ssh pi@A.A.A.A 'sudo ipset list xbox_route_block'
 ```
 
 **Expected:** `enabled=active`, DROP chain, ipset entries for slow region probe IPs.
@@ -76,8 +76,8 @@ ssh pi@<firewalla> 'sudo ipset list xbox_route_block'
 ### Step 6 — Clean uninstall
 
 ```bash
-ssh pi@<firewalla> 'sudo /home/pi/gaming-tools/gaming-route-enforce.sh off'
-ssh pi@<firewalla> 'sudo /home/pi/gaming-tools/gaming-role-qos.sh off'
+ssh pi@A.A.A.A 'sudo /home/pi/gaming-tools/gaming-route-enforce.sh off'
+ssh pi@A.A.A.A 'sudo /home/pi/gaming-tools/gaming-role-qos.sh off'
 ```
 
 Confirm `iptables -L XBOX_ROUTE_ENFORCE` and ipsets are gone.

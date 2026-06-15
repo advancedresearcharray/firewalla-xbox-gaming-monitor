@@ -31,6 +31,19 @@ Live Xbox traffic dashboard powered by **Firewalla Gold/Purple**. Monitors conne
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 
+### Address placeholders
+
+Examples in this repo use fictional addresses — replace with your LAN values in `gaming.conf` and dashboard env:
+
+| Placeholder | Role |
+|-------------|------|
+| `A.A.A.A` | Firewalla LAN IP |
+| `B.B.B.B` | Xbox IPv4 |
+| `C.C.C.C` | Dashboard host |
+| `aa:bb:cc:dd:ee:ff` | Xbox MAC (example) |
+
+WAN latency probes use the public hostname `one.one.one.one` (configurable via `WAN_PROBE_HOST` / `wanProbeHost`).
+
 ## Quick start
 
 ### 1. Install scripts on Firewalla
@@ -43,9 +56,9 @@ cd firewalla-xbox-gaming-monitor
 
 # Copy scripts to Firewalla
 scp -r remote/ data/route-probes.json deploy/gaming.conf.example \
-  pi@192.168.1.1:/tmp/gaming-install/
+  pi@A.A.A.A:/tmp/gaming-install/
 
-ssh pi@192.168.1.1
+ssh pi@A.A.A.A
   cd /tmp/gaming-install
   # Edit gaming.conf.example → set XBOX_IP, XBOX_MAC, LAN_IF
   bash ../scripts/install-on-firewalla.sh   # or run from repo on Firewalla
@@ -56,8 +69,8 @@ ssh pi@192.168.1.1
 ### 2. Install dashboard (any Linux host on LAN)
 
 ```bash
-sudo FIREWALLA_HOST=192.168.1.1 XBOX_IP=192.168.1.100 ./scripts/install-dashboard.sh
-# Open http://<host-ip>:9377/
+sudo FIREWALLA_HOST=A.A.A.A XBOX_IP=B.B.B.B ./scripts/install-dashboard.sh
+# Open http://C.C.C.C:9377/
 ```
 
 **Docker alternative:**
@@ -67,7 +80,7 @@ mkdir -p deploy/ssh
 cp ~/.ssh/firewalla-gaming-monitor deploy/ssh/
 cp ~/.ssh/firewalla-gaming-monitor.pub deploy/ssh/
 # Add pubkey to Firewalla pi@authorized_keys first
-FIREWALLA_HOST=192.168.1.1 XBOX_IP=192.168.1.100 docker compose up -d
+FIREWALLA_HOST=A.A.A.A XBOX_IP=B.B.B.B docker compose up -d
 ```
 
 Full guide: [docs/INSTALL.md](docs/INSTALL.md)
@@ -78,8 +91,8 @@ Full guide: [docs/INSTALL.md](docs/INSTALL.md)
 |------|-------------|
 | Firewalla | **Gold or Purple** recommended (SSH, SQM, ifb, Redis, conntrack) |
 | SSH | Enabled; `pi` user (default Firewalla SSH) |
-| Dashboard host | Node.js 20+ or Docker |
-| Xbox | Static DHCP reservation recommended (IP + MAC in `gaming.conf`) |
+| Dashboard host | Node.js 20+ or Docker (e.g. `C.C.C.C`) |
+| Xbox | Static DHCP reservation recommended — set `B.B.B.B` + MAC in `gaming.conf` |
 
 ## API
 
@@ -88,6 +101,7 @@ Full guide: [docs/INSTALL.md](docs/INSTALL.md)
 | `/api/snapshot` | GET | Latest enriched snapshot |
 | `/api/stream` | GET | SSE live stream |
 | `/api/traffic-policy` | POST | `{ "profile": "balanced\|competitive\|download" }` |
+| `/api/competitive-policy` | GET/POST | Bandwidth mode (dynamic/static Mbps) + Xbox-only DNS |
 | `/api/route-probe` | POST | Force path probe |
 | `/api/route-policy` | GET/POST | Path enforcement on/off |
 | `/api/ai-insights` | GET/POST | Local session analysis (heuristics + learning) |
@@ -112,6 +126,8 @@ This project is **separate from** [firewalla/firewalla](https://github.com/firew
 
 - Route enforcement adds `iptables`/`ipset` DROP rules in `FORWARD` for **Xbox source IPs only**
 - QoS uses `mangle` POSTROUTING DSCP marks; works with Firewalla CAKE `diffserv3`
+- **Competitive bandwidth:** `dynamic` (Firewalla allocates) or `static` Mbps caps on Xbox only via ingress policing
+- **DNS:** off by default; when enabled, redirects DNS queries **only from XBOX_IP/MAC** — does not change DHCP or global Firewalla DNS (fixes laptop/other-device timeout issues)
 - Scripts are read-only on Firewalla except for explicit QoS/enforcement sync commands
 - No Firewalla OS or app modification required — files live in `/home/pi/gaming-tools/`
 

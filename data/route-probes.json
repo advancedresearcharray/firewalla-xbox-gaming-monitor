@@ -1,8 +1,10 @@
 {
-  "maxTargetsPerRun": 10,
-  "maxLiveTargetsPerRun": 4,
+  "maxTargetsPerRun": 16,
+  "maxLiveTargetsPerRun": 3,
   "maxHops": 18,
+  "wanProbeHost": "one.one.one.one",
   "probeIntervalSec": 300,
+  "scope": "xbox-only",
   "regionProbes": [
     {
       "id": "azure-central-us",
@@ -41,6 +43,43 @@
       "purpose": "CoD/Azure QoS probe — South America"
     }
   ],
+  "gameProbes": [
+    {
+      "id": "warzone-demonware",
+      "game": "warzone",
+      "label": "Warzone — Demonware",
+      "hostname": "demonware.net",
+      "purpose": "Call of Duty / Warzone online services backbone"
+    },
+    {
+      "id": "warzone-playfab",
+      "game": "warzone",
+      "label": "Warzone — PlayFab",
+      "hostname": "playfab.com",
+      "purpose": "Warzone lobby, matchmaking, and session API"
+    },
+    {
+      "id": "warzone-cod",
+      "game": "warzone",
+      "label": "Warzone — Call of Duty",
+      "hostname": "callofduty.com",
+      "purpose": "Warzone platform and title services"
+    },
+    {
+      "id": "destiny2-stats",
+      "game": "destiny2",
+      "label": "Destiny 2 — stats API",
+      "hostname": "stats.bungie.net",
+      "purpose": "Destiny 2 live services and stats API"
+    },
+    {
+      "id": "destiny2-platform",
+      "game": "destiny2",
+      "label": "Destiny 2 — Bungie platform",
+      "hostname": "www.bungie.net",
+      "purpose": "Destiny 2 auth, manifest, and platform services"
+    }
+  ],
   "scoring": {
     "pingSamples": 3,
     "pingTieBreakMs": 3,
@@ -52,6 +91,8 @@
   "enforcement": {
     "slowPathDeltaMs": 5,
     "slowRegionDeltaMs": 35,
-    "enabledByDefault": true
+    "enabledByDefault": true,
+    "scope": "xbox-only",
+    "note": "Blocks slow alternate destination IPs in FORWARD for Xbox source only — other LAN devices use default router paths"
   }
 }

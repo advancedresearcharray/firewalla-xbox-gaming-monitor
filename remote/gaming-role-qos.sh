@@ -11,19 +11,12 @@ if [[ -f "$CONF" ]]; then
   # shellcheck disable=SC1090
   source "$CONF"
 fi
+# shellcheck disable=SC1091
+source "${TOOLS_DIR}/xbox-scope.sh"
 
 log() { printf '[role-qos] %s\n' "$*"; }
 
 need_root() { [[ "${EUID:-$(id -u)}" -eq 0 ]] || { echo "Run with sudo"; exit 1; }; }
-
-discover_xbox_ipv6() {
-  [[ -n "${XBOX_MAC:-}" ]] || return 0
-  local mac="${XBOX_MAC,,}"
-  ip -6 neigh show dev "${LAN_IF:-br2}" 2>/dev/null | while read -r line; do
-    [[ "${line,,}" == *"$mac"* ]] || continue
-    echo "$line" | awk '{print $1}'
-  done
-}
 
 ensure_ipsets() {
   ipset create xbox_qos_critical hash:net family inet hashsize 4096 maxelem 65536 -exist
@@ -73,9 +66,7 @@ setup_chain() {
     "$cmd" -t mangle -A "$CHAIN" -s "$src" -m set --match-set "xbox_qos_critical${suffix}" dst -j DSCP --set-dscp-class EF
     "$cmd" -t mangle -A "$CHAIN" -s "$src" -m set --match-set "xbox_qos_high${suffix}" dst -j DSCP --set-dscp-class AF41
     "$cmd" -t mangle -A "$CHAIN" -s "$src" -m set --match-set "xbox_qos_low${suffix}" dst -j DSCP --set-dscp-class CS1
-  done < <(
-    { echo "${XBOX_IP:-}"; discover_xbox_ipv6; } | sort -u
-  )
+  done < <(xbox_sources)
 
   if ! "$cmd" -t mangle -C POSTROUTING -j "$CHAIN" 2>/dev/null; then
     "$cmd" -t mangle -A POSTROUTING -j "$CHAIN"
@@ -110,6 +101,7 @@ cmd_sync() {
   need_root
   local profile="${1:-competitive}"
   local json_file="${2:-}"
+  require_xbox_ip
   if [[ "$profile" == "balanced" ]]; then
     cmd_off
     return 0

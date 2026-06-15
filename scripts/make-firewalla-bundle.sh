@@ -4,8 +4,8 @@
 #
 # Usage:
 #   ./scripts/make-firewalla-bundle.sh
-#   scp dist/firewalla-gaming-tools-*.tar.gz pi@firewalla:/tmp/
-#   ssh pi@firewalla 'cd /tmp && tar xzf firewalla-gaming-tools-*.tar.gz && cd firewalla-gaming-tools && bash install-on-firewalla.sh'
+#   scp dist/firewalla-gaming-tools-*.tar.gz pi@A.A.A.A:/tmp/
+#   ssh pi@A.A.A.A 'cd /tmp && tar xzf firewalla-gaming-tools-*.tar.gz && cd firewalla-gaming-tools && bash install-on-firewalla.sh'
 #
 set -euo pipefail
 
@@ -29,5 +29,5 @@ rm -rf "$WORKDIR"
 echo "Created: $OUT"
 echo ""
 echo "Send to Firewalla for testing:"
-echo "  scp $OUT pi@<firewalla>:/tmp/"
-echo "  ssh pi@<firewalla> 'cd /tmp && tar xzf $(basename "$OUT") && cd firewalla-gaming-tools && bash install-on-firewalla.sh'"
+echo "  scp $OUT pi@A.A.A.A:/tmp/"
+echo "  ssh pi@A.A.A.A 'cd /tmp && tar xzf $(basename "$OUT") && cd firewalla-gaming-tools && bash install-on-firewalla.sh'"

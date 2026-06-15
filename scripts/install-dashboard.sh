@@ -10,9 +10,9 @@ set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/opt/xbox-traffic-monitor}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-FIREWALLA_HOST="${FIREWALLA_HOST:-192.168.1.1}"
+FIREWALLA_HOST="${FIREWALLA_HOST:-A.A.A.A}"
 FIREWALLA_USER="${FIREWALLA_USER:-pi}"
-XBOX_IP="${XBOX_IP:-192.168.1.100}"
+XBOX_IP="${XBOX_IP:-B.B.B.B}"
 PORT="${PORT:-9377}"
 
 need_root() { [[ "${EUID:-$(id -u)}" -eq 0 ]] || { echo "Run with sudo"; exit 1; }; }
@@ -56,6 +56,8 @@ FIREWALLA_USER=${FIREWALLA_USER}
 FIREWALLA_SSH_KEY=${KEY}
 REMOTE_SCRIPT=/home/pi/gaming-tools/gaming-snapshot.sh
 REMOTE_QOS=/home/pi/gaming-tools/gaming-role-qos.sh
+REMOTE_BANDWIDTH=/home/pi/gaming-tools/gaming-bandwidth-qos.sh
+REMOTE_DNS=/home/pi/gaming-tools/gaming-dns-policy.sh
 REMOTE_ROUTE=/home/pi/gaming-tools/gaming-route-probe.sh
 REMOTE_ENFORCE=/home/pi/gaming-tools/gaming-route-enforce.sh
 XBOX_IP=${XBOX_IP}

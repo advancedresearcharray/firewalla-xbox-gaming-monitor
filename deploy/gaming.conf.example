@@ -1,7 +1,7 @@
 # Copy to /home/pi/gaming-tools/gaming.conf on Firewalla
 # Used by all remote/*.sh scripts
 
-XBOX_IP="192.168.1.100"
+XBOX_IP="B.B.B.B"
 XBOX_MAC="aa:bb:cc:dd:ee:ff"
 XBOX_NAME="Xbox"
 
@@ -11,3 +11,11 @@ LAN_IF="br2"
 # SQM interfaces (Gold with dual-WAN / ifb shaping)
 UPLOAD_IF="ifb0"
 DOWNLOAD_IF="ifb1"
+
+# Public hostname for WAN latency probe (resolved at runtime; not a LAN address)
+WAN_PROBE_HOST="one.one.one.one"
+
+# Optional Xbox-only DNS (dashboard controls this; off by default).
+# When enabled, gaming-dns-policy.sh redirects DNS only from XBOX_IP — never LAN-wide.
+# XBOX_DNS_PRIMARY="1.1.1.1"
+# XBOX_DNS_SECONDARY="1.0.0.1"

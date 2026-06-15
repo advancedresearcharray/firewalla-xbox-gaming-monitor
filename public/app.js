@@ -17,7 +17,29 @@ const els = {
   flowsBody: document.getElementById("flows-body"),
   policyStatus: document.getElementById("policy-status"),
   policyButtons: document.getElementById("policy-buttons"),
+  competitivePanel: document.getElementById("competitive-panel"),
+  bandwidthModeButtons: document.getElementById("bandwidth-mode-buttons"),
+  bandwidthStaticFields: document.getElementById("bandwidth-static-fields"),
+  bwUpload: document.getElementById("bw-upload"),
+  bwDownload: document.getElementById("bw-download"),
+  bandwidthStatus: document.getElementById("bandwidth-status"),
+  dnsEnabled: document.getElementById("dns-enabled"),
+  dnsFields: document.getElementById("dns-fields"),
+  dnsPrimary: document.getElementById("dns-primary"),
+  dnsSecondary: document.getElementById("dns-secondary"),
+  dnsStatus: document.getElementById("dns-status"),
+  applyCompetitiveBtn: document.getElementById("apply-competitive-btn"),
   routeProbeBtn: document.getElementById("route-probe-btn"),
+  networkHealthBtn: document.getElementById("network-health-btn"),
+  networkHealthStatus: document.getElementById("network-health-status"),
+  nhNatType: document.getElementById("nh-nat-type"),
+  nhNatDetail: document.getElementById("nh-nat-detail"),
+  nhWanTopology: document.getElementById("nh-wan-topology"),
+  nhWanDetail: document.getElementById("nh-wan-detail"),
+  nhLowestMtu: document.getElementById("nh-lowest-mtu"),
+  nhMtuDetail: document.getElementById("nh-mtu-detail"),
+  nhIssues: document.getElementById("nh-issues"),
+  mtuBody: document.getElementById("mtu-body"),
   routeEnforceOn: document.getElementById("route-enforce-on"),
   routeEnforceOff: document.getElementById("route-enforce-off"),
   routeEnforceStatus: document.getElementById("route-enforce-status"),
@@ -93,7 +115,118 @@ function formatRole(item) {
 }
 
 let activeProfile = "balanced";
+let competitivePolicy = {
+  bandwidth: { mode: "dynamic", uploadMbps: 10, downloadMbps: 50 },
+  dns: { enabled: false, primary: "1.1.1.1", secondary: "1.0.0.1" },
+};
 let routeEnforcementEnabled = true;
+
+function syncCompetitiveFormFromPolicy(policy) {
+  if (!policy) return;
+  competitivePolicy = {
+    bandwidth: { ...competitivePolicy.bandwidth, ...policy.bandwidth },
+    dns: { ...competitivePolicy.dns, ...policy.dns },
+  };
+  els.bwUpload.value = competitivePolicy.bandwidth.uploadMbps ?? 10;
+  els.bwDownload.value = competitivePolicy.bandwidth.downloadMbps ?? 50;
+  els.dnsEnabled.checked = Boolean(competitivePolicy.dns.enabled);
+  els.dnsPrimary.value = competitivePolicy.dns.primary || "1.1.1.1";
+  els.dnsSecondary.value = competitivePolicy.dns.secondary || "1.0.0.1";
+}
+
+function renderCompetitivePanel(profile, policy, summary, options = {}) {
+  const syncForm = options.syncForm !== false;
+  const show = profile === "competitive";
+  els.competitivePanel.hidden = !show;
+  if (!show) return;
+
+  if (policy && syncForm) {
+    syncCompetitiveFormFromPolicy(policy);
+  }
+
+  const bwMode = competitivePolicy.bandwidth?.mode || "dynamic";
+  document.querySelectorAll("[data-bw-mode]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.bwMode === bwMode);
+  });
+  els.bandwidthStaticFields.hidden = bwMode !== "static";
+  els.dnsFields.hidden = !els.dnsEnabled.checked;
+
+  if (summary) {
+    els.bandwidthStatus.textContent = `Bandwidth: ${summary.bandwidth}`;
+    els.dnsStatus.textContent = `DNS: ${summary.dns}`;
+  }
+}
+
+document.querySelectorAll("[data-bw-mode]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    competitivePolicy.bandwidth.mode = btn.dataset.bwMode;
+    renderCompetitivePanel("competitive", competitivePolicy);
+  });
+});
+
+els.dnsEnabled?.addEventListener("change", () => {
+  els.dnsFields.hidden = !els.dnsEnabled.checked;
+});
+
+async function applyCompetitiveSettings() {
+  els.applyCompetitiveBtn.disabled = true;
+  els.bandwidthStatus.textContent = "Applying…";
+  try {
+    const body = {
+      bandwidth: {
+        mode: competitivePolicy.bandwidth.mode,
+        uploadMbps: Number(els.bwUpload.value) || 10,
+        downloadMbps: Number(els.bwDownload.value) || 50,
+      },
+      dns: {
+        enabled: els.dnsEnabled.checked,
+        primary: els.dnsPrimary.value.trim() || "1.1.1.1",
+        secondary: els.dnsSecondary.value.trim() || "1.0.0.1",
+      },
+    };
+    const res = await fetch("/api/competitive-policy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || res.statusText);
+    renderCompetitivePanel(activeProfile, payload.policy, payload.summary);
+    if (payload.data) {
+      renderSnapshot({
+        data: payload.data,
+        lastError: null,
+        trafficProfile: activeProfile,
+        routeEnforcementEnabled,
+      });
+    }
+  } catch (err) {
+    els.bandwidthStatus.textContent = `Failed: ${err.message}`;
+  } finally {
+    els.applyCompetitiveBtn.disabled = false;
+  }
+}
+
+els.applyCompetitiveBtn?.addEventListener("click", applyCompetitiveSettings);
+
+async function loadCompetitivePolicy() {
+  try {
+    const res = await fetch("/api/competitive-policy");
+    const body = await res.json();
+    if (res.ok) {
+      activeProfile = body.activeProfile || activeProfile;
+      els.policyStatus.textContent = `Profile: ${activeProfile}`;
+      document.querySelectorAll(".policy-btn[data-profile]").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.profile === activeProfile);
+      });
+      renderCompetitivePanel(activeProfile, body.policy, body.summary);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+loadCompetitivePolicy();
 
 async function setRouteEnforcement(enabled) {
   els.routeEnforceStatus.textContent = enabled ? "Enabling firewall path blocks…" : "Disabling path blocks…";
@@ -222,13 +355,14 @@ async function setTrafficProfile(profile) {
     document.querySelectorAll(".policy-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.profile === profile);
     });
+    renderCompetitivePanel(profile, body.policy, body.policySummary);
     if (body.data) renderSnapshot({ data: body.data, lastError: null, trafficProfile: profile });
   } catch (err) {
     els.policyStatus.textContent = `Failed: ${err.message}`;
   }
 }
 
-document.querySelectorAll(".policy-btn").forEach((btn) => {
+document.querySelectorAll(".policy-btn[data-profile]").forEach((btn) => {
   btn.addEventListener("click", () => setTrafficProfile(btn.dataset.profile));
 });
 document.querySelector('.policy-btn[data-profile="balanced"]')?.classList.add("active");
@@ -273,6 +407,104 @@ async function probeRoutes() {
 }
 
 els.routeProbeBtn?.addEventListener("click", probeRoutes);
+
+function natClass(natType) {
+  if (natType === "open") return "nh-nat-open";
+  if (natType === "moderate") return "nh-nat-moderate";
+  if (natType === "strict") return "nh-nat-strict";
+  return "nh-nat-unknown";
+}
+
+function renderNetworkHealth(health, summary, probing, error) {
+  if (probing) {
+    els.networkHealthStatus.textContent = "Probing NAT type and path MTU (may take ~30s)…";
+    return;
+  }
+  if (error) {
+    els.networkHealthStatus.textContent = `Network health error: ${error}`;
+  } else if (health?.probedAt) {
+    els.networkHealthStatus.textContent = `Last probe ${new Date(health.probedAt).toLocaleString()} — NAT & MTU from Firewalla`;
+  } else {
+    els.networkHealthStatus.textContent = "NAT type and path MTU — detects double NAT, UPnP, and fragmentation risk.";
+  }
+
+  const nat = health?.nat || {};
+  const mtu = health?.mtu || {};
+  const sum = summary || {};
+
+  const natLabel = (nat.xboxNatEquivalent || sum.xboxNatEquivalent || "—").toUpperCase();
+  els.nhNatType.innerHTML = `<span class="${natClass(nat.natType || sum.natType)}">${natLabel}</span>`;
+  els.nhNatDetail.textContent = nat.detail || "—";
+
+  if (sum.doubleNat || nat.wan?.doubleNat) {
+    els.nhWanTopology.innerHTML = '<span class="nh-nat-strict">Double NAT</span>';
+    els.nhWanDetail.textContent = `Firewalla WAN ${nat.wan?.wanIp || "?"} via ${nat.wan?.wanGateway || "upstream router"} — public ${nat.wan?.publicIp || "?"}`;
+  } else if (nat.wan?.wanPrivate) {
+    els.nhWanTopology.innerHTML = '<span class="nh-nat-moderate">Private WAN</span>';
+    els.nhWanDetail.textContent = `WAN IP ${nat.wan?.wanIp || "?"}`;
+  } else {
+    els.nhWanTopology.innerHTML = '<span class="nh-nat-open">Direct</span>';
+    els.nhWanDetail.textContent = `Public ${nat.wan?.publicIp || nat.wan?.wanIp || "?"}`;
+  }
+
+  const lowest = mtu.summary?.lowestMtu ?? sum.mtuLowest;
+  els.nhLowestMtu.textContent = lowest != null ? `${lowest}` : "—";
+  els.nhMtuDetail.textContent = mtu.recommendation || "—";
+
+  const issues = [...(nat.issues || [])];
+  if (nat.degraded) {
+    issues.unshift(`NAT degraded from ${nat.changedFrom} to ${nat.natType}`);
+  }
+  els.nhIssues.innerHTML = issues.length
+    ? issues.map((issue) => `<div class="route-rec route-rec-high"><strong>⚠</strong> ${issue}</div>`).join("")
+    : "";
+
+  const rows = mtu.targets || [];
+  els.mtuBody.innerHTML = rows.length
+    ? rows
+        .map((r) => {
+          const risk = r.fragmentationRisk ? "Yes" : "No";
+          const riskCls = r.fragmentationRisk ? "risk-yes" : "risk-no";
+          return `<tr>
+            <td>${r.label || "—"}</td>
+            <td><code>${r.ip || "—"}</code></td>
+            <td>${r.stack || "—"}</td>
+            <td>${r.pathMtu != null ? `${r.pathMtu} B` : "—"}</td>
+            <td class="${riskCls}">${risk}</td>
+          </tr>`;
+        })
+        .join("")
+    : "<tr><td colspan=\"5\">No MTU data — run probe</td></tr>";
+}
+
+async function probeNetworkHealth() {
+  els.networkHealthBtn.disabled = true;
+  els.networkHealthBtn.textContent = "Probing…";
+  renderNetworkHealth(null, null, true, null);
+  try {
+    const res = await fetch("/api/network-health", { method: "POST" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    renderNetworkHealth(body.health, body.summary, false, null);
+    if (body.data) {
+      renderSnapshot({
+        data: body.data,
+        lastError: null,
+        trafficProfile: activeProfile,
+        routeEnforcementEnabled,
+        networkHealth: body.health,
+        networkHealthSummary: body.summary,
+      });
+    }
+  } catch (err) {
+    renderNetworkHealth(null, null, false, err.message);
+  } finally {
+    els.networkHealthBtn.disabled = false;
+    els.networkHealthBtn.textContent = "Probe NAT & MTU";
+  }
+}
+
+els.networkHealthBtn?.addEventListener("click", probeNetworkHealth);
 
 function renderRouteAnalysis(analysis, routeProbing, enforcementEnabled) {
   if (routeProbing) {
@@ -408,9 +640,30 @@ function renderChart() {
 }
 
 function renderSnapshot(payload) {
-  const { data, lastError, trafficProfile: profile, routeError, routeEnforceError, routeProbing, routeEnforcementEnabled: reEnabled } = payload;
+  const {
+    data,
+    lastError,
+    trafficProfile: profile,
+    routeError,
+    routeEnforceError,
+    routeProbing,
+    routeEnforcementEnabled: reEnabled,
+    policy,
+    policySummary: pSummary,
+    networkHealth,
+    networkHealthSummary,
+    networkHealthError,
+    networkHealthProbing,
+  } = payload;
   setError(lastError || routeError || routeEnforceError);
   if (typeof reEnabled === "boolean") routeEnforcementEnabled = reEnabled;
+
+  renderNetworkHealth(
+    networkHealth || data?.networkHealth,
+    networkHealthSummary || data?.networkHealthSummary,
+    networkHealthProbing,
+    networkHealthError,
+  );
 
   if (!data) return;
 
@@ -420,6 +673,7 @@ function renderSnapshot(payload) {
     document.querySelectorAll(".policy-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.profile === profile);
     });
+    renderCompetitivePanel(profile, policy || competitivePolicy, pSummary, { syncForm: false });
   }
 
   const xbox = data.xbox || {};
@@ -450,8 +704,17 @@ function renderSnapshot(payload) {
   els.metricLatency.innerHTML =
     lat == null ? "— <small>ms</small>" : `${lat.toFixed(1)} <small>ms</small>`;
 
-  const gaming = data.sqm?.gamingMode === "on" ? "ON" : "OFF";
-  els.metricGaming.textContent = gaming;
+  const gamingMode = data.sqm?.gamingMode || "off";
+  const gamingOn = gamingMode === "on" || gamingMode === "partial";
+  const gamingDetail = data.sqm?.gamingModeDetail || "";
+  els.metricGaming.textContent = gamingOn
+    ? gamingMode === "partial"
+      ? "PARTIAL"
+      : "ON"
+    : "OFF";
+  if (gamingDetail) {
+    els.metricGaming.title = gamingDetail;
+  }
 
   els.deviceMeta.innerHTML = [
     `<strong>${xbox.name || "Xbox"}</strong>`,
@@ -464,6 +727,7 @@ function renderSnapshot(payload) {
   els.sqmMeta.innerHTML = [
     `Upload: ${data.sqm?.uploadQdisc || "—"}`,
     `Download: ${data.sqm?.downloadQdisc || "—"}`,
+    `Gaming QoS: ${gamingOn ? gamingMode.toUpperCase() : "OFF"}${gamingDetail ? ` (${gamingDetail})` : ""}`,
   ].join("<br>");
 
   renderRouteAnalysis(data.routeAnalysis, routeProbing, routeEnforcementEnabled);

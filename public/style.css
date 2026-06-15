@@ -267,6 +267,110 @@ tr.route-best td:first-child {
   margin: 0 0 0.75rem;
 }
 
+.network-health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.nh-metric-card {
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(18, 25, 35, 0.5);
+}
+
+.nh-metric-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.nh-metric {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.nh-metric-sm {
+  font-size: 1.1rem;
+}
+
+.nh-detail {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.nh-nat-open { color: #3dd68c; }
+.nh-nat-moderate { color: #f0b429; }
+.nh-nat-strict { color: #ff6b6b; }
+.nh-nat-unknown { color: var(--muted); }
+
+.mtu-table td.risk-yes {
+  color: #ff6b6b;
+}
+
+.mtu-table td.risk-no {
+  color: #3dd68c;
+}
+
+.competitive-panel {
+  margin: 0.75rem 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(18, 25, 35, 0.65);
+}
+
+.competitive-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.competitive-fields[hidden],
+.competitive-panel[hidden] {
+  display: none !important;
+}
+
+.competitive-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.competitive-fields input[type="number"],
+.competitive-fields input[type="text"] {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.35rem 0.5rem;
+  min-width: 7rem;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+}
+
+.warn-note {
+  border-left: 3px solid #fbbf24;
+  padding-left: 0.65rem;
+}
+
 .role-legend {
   color: var(--muted);
   font-size: 0.85rem;

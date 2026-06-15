@@ -19,7 +19,7 @@ if [[ -z "$TARGET_IP" ]]; then
   exit 2
 fi
 
-exec python3 - "$TARGET_IP" "$LAN" "$UPLOAD_IF" "$DOWNLOAD_IF" "${XBOX_NAME:-Xbox}" "${XBOX_MAC:-}" "$TOOLS_DIR" <<'PY'
+exec python3 - "$TARGET_IP" "$LAN" "$UPLOAD_IF" "$DOWNLOAD_IF" "${XBOX_NAME:-Xbox}" "${XBOX_MAC:-}" "$TOOLS_DIR" "${WAN_PROBE_HOST:-one.one.one.one}" <<'PY'
 import json
 import ipaddress
 import re
@@ -28,7 +28,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
-target_ip, lan, upload_if, download_if, xbox_name, xbox_mac, tools_dir = sys.argv[1:8]
+target_ip, lan, upload_if, download_if, xbox_name, xbox_mac, tools_dir, wan_probe_host = sys.argv[1:9]
 xbox_mac = (xbox_mac or "").upper().replace("-", ":")
 
 def run(cmd, timeout=5):
@@ -520,16 +520,85 @@ cake_download = run(["tc", "qdisc", "show", "dev", download_if]).splitlines()
 cake_upload = next((l for l in cake_upload if "cake" in l), "")
 cake_download = next((l for l in cake_download if "cake" in l), "")
 
-gaming_mode = "on" if __import__("os").path.isfile(f"{tools_dir}/.gaming-mode.state") else "off"
+
+def normalize_mac(mac):
+    return (mac or "").upper().replace("-", ":")
+
+
+def redis_hget(key, field):
+    out = run(["redis-cli", "HGET", key, field], timeout=3)
+    return out.strip() if out else ""
+
+
+def detect_gaming_mode(mac):
+    """Read Firewalla device QoS policies (e.g. 569/570) scoped to Xbox MAC."""
+    import os
+
+    legacy = f"{tools_dir}/.gaming-mode.state"
+    if os.path.isfile(legacy):
+        return "on", "companion-state"
+
+    norm_mac = normalize_mac(mac)
+    if not norm_mac:
+        return "unknown", "no-mac-configured"
+
+    policy_keys = run(["redis-cli", "--scan", "--pattern", "policy:*"], timeout=12).splitlines()
+    upload_qos = False
+    download_qos = False
+    pids = []
+
+    for key in policy_keys:
+        if not key.startswith("policy:"):
+            continue
+        pid = key.rsplit(":", 1)[-1]
+        if not pid.isdigit():
+            continue
+        if redis_hget(key, "action") != "qos":
+            continue
+        disabled = redis_hget(key, "disabled")
+        if disabled not in ("0", ""):
+            continue
+        scope = redis_hget(key, "scope")
+        if norm_mac not in scope.upper():
+            continue
+        direction = redis_hget(key, "trafficDirection")
+        pids.append(pid)
+        if direction == "upload":
+            upload_qos = True
+        elif direction == "download":
+            download_qos = True
+
+    if upload_qos and download_qos:
+        return "on", f"firewalla-qos {','.join(sorted(set(pids)))}"
+    if upload_qos or download_qos:
+        return "partial", f"firewalla-qos-one-way {','.join(sorted(set(pids)))}"
+
+    traffic_state = f"{tools_dir}/.traffic-profile.state"
+    if os.path.isfile(traffic_state):
+        try:
+            with open(traffic_state, encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("profile="):
+                        profile = line.split("=", 1)[1].strip()
+                        if profile and profile != "balanced":
+                            return "on", f"companion-{profile}"
+        except OSError:
+            pass
+
+    return "off", "firewalla-qos-inactive"
+
+
+gaming_mode, gaming_mode_detail = detect_gaming_mode(xbox_mac)
 
 wan_latency_ms = None
-ping_out = run(["ping", "-c", "1", "-W", "2", "1.1.1.1"], timeout=4)
-for line in ping_out.splitlines():
-    if "min/avg" in line or "rtt min/avg" in line:
-        try:
-            wan_latency_ms = float(line.split("=")[1].split("/")[1])
-        except (IndexError, ValueError):
-            pass
+if wan_probe_host:
+    ping_out = run(["ping", "-c", "1", "-W", "2", wan_probe_host], timeout=4)
+    for line in ping_out.splitlines():
+        if "min/avg" in line or "rtt min/avg" in line:
+            try:
+                wan_latency_ms = float(line.split("=")[1].split("/")[1])
+            except (IndexError, ValueError):
+                pass
 
 payload = {
     "timestamp": now,
@@ -562,6 +631,7 @@ payload = {
         "uploadQdisc": cake_upload,
         "downloadQdisc": cake_download,
         "gamingMode": gaming_mode,
+        "gamingModeDetail": gaming_mode_detail,
     },
     "wan": {
         "latencyMs": wan_latency_ms,

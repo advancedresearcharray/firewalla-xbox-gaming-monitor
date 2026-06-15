@@ -63,6 +63,47 @@
         </article>
       </section>
 
+      <section class="card network-health-card">
+        <div class="route-header">
+          <h2>Network health</h2>
+          <button type="button" class="policy-btn" id="network-health-btn">Probe NAT &amp; MTU</button>
+        </div>
+        <p class="section-note" id="network-health-status">NAT type and path MTU — detects double NAT, UPnP, and fragmentation risk on game server paths.</p>
+        <div class="network-health-grid">
+          <article class="nh-metric-card">
+            <h3>Est. NAT type</h3>
+            <div class="nh-metric" id="nh-nat-type">—</div>
+            <p class="nh-detail" id="nh-nat-detail">—</p>
+          </article>
+          <article class="nh-metric-card">
+            <h3>WAN topology</h3>
+            <div class="nh-metric nh-metric-sm" id="nh-wan-topology">—</div>
+            <p class="nh-detail" id="nh-wan-detail">—</p>
+          </article>
+          <article class="nh-metric-card">
+            <h3>Lowest path MTU</h3>
+            <div class="nh-metric" id="nh-lowest-mtu">—</div>
+            <p class="nh-detail" id="nh-mtu-detail">—</p>
+          </article>
+        </div>
+        <div id="nh-issues" class="route-recs"></div>
+        <h3 class="route-subhead">Path MTU probes</h3>
+        <table class="mtu-table">
+          <thead>
+            <tr>
+              <th>Target</th>
+              <th>IP</th>
+              <th>Stack</th>
+              <th>Path MTU</th>
+              <th>Risk</th>
+            </tr>
+          </thead>
+          <tbody id="mtu-body">
+            <tr><td colspan="5">Click Probe NAT &amp; MTU to analyze paths…</td></tr>
+          </tbody>
+        </table>
+      </section>
+
       <section class="card policy-card">
         <h2>Traffic policy</h2>
         <p class="section-note">Classify each server by function and optionally shape Xbox traffic by role using Firewalla DSCP + CAKE.</p>
@@ -72,6 +113,32 @@
           <button type="button" class="policy-btn" data-profile="download">Download / patch</button>
         </div>
         <p class="policy-status" id="policy-status">Profile: balanced</p>
+        <div class="competitive-panel" id="competitive-panel" hidden>
+          <h3 class="route-subhead">Competitive bandwidth</h3>
+          <p class="section-note">Dynamic lets Firewalla CAKE + device QoS allocate bandwidth. Static caps apply only to the Xbox IP/MAC.</p>
+          <div class="policy-buttons" id="bandwidth-mode-buttons">
+            <button type="button" class="policy-btn" data-bw-mode="dynamic">Dynamic</button>
+            <button type="button" class="policy-btn" data-bw-mode="static">Static Mbps</button>
+          </div>
+          <div class="competitive-fields" id="bandwidth-static-fields" hidden>
+            <label>Upload Mbps <input type="number" id="bw-upload" min="1" max="1000" value="10" /></label>
+            <label>Download Mbps <input type="number" id="bw-download" min="1" max="1000" value="50" /></label>
+          </div>
+          <p class="policy-status" id="bandwidth-status">Bandwidth: dynamic</p>
+
+          <h3 class="route-subhead">Xbox-only DNS</h3>
+          <p class="section-note warn-note">Off by default. When enabled, only the Xbox uses custom DNS — laptops and phones keep your normal network DNS. Never changes DHCP or global Firewalla DNS.</p>
+          <label class="toggle-row">
+            <input type="checkbox" id="dns-enabled" />
+            Redirect Xbox DNS only
+          </label>
+          <div class="competitive-fields" id="dns-fields" hidden>
+            <label>Primary <input type="text" id="dns-primary" value="1.1.1.1" placeholder="1.1.1.1" /></label>
+            <label>Secondary <input type="text" id="dns-secondary" value="1.0.0.1" placeholder="1.0.0.1" /></label>
+          </div>
+          <p class="policy-status" id="dns-status">DNS: network default (all devices)</p>
+          <button type="button" class="policy-btn" id="apply-competitive-btn">Apply competitive settings</button>
+        </div>
         <details class="role-legend">
           <summary>What each server role means</summary>
           <ul id="role-legend-list">
@@ -143,7 +210,7 @@
         </table>
         <details class="role-legend">
           <summary>How path enforcement works</summary>
-          <p class="section-note">After probing, Firewalla drops Xbox traffic to slower alternate IPs (e.g. slow IPv6 when IPv4 is faster) and to datacenter probe endpoints more than 35 ms worse than your best region. The Xbox must retry on the fast path.</p>
+          <p class="section-note">After probing, Firewalla drops Xbox traffic to slower alternate IPs (e.g. slow IPv6 when IPv4 is faster) and to datacenter probe endpoints more than 35 ms worse than your best region. Warzone and Destiny 2 game servers are probed automatically. Rules apply to Xbox source IP/MAC only — laptops and phones keep default router paths.</p>
         </details>
       </section>
 

@@ -5,7 +5,7 @@ set -euo pipefail
 TOOLS_DIR="/home/pi/gaming-tools"
 TARGETS_FILE="${1:-}"
 MAX_HOPS="${MAX_HOPS:-18}"
-MAX_TARGETS="${MAX_TARGETS:-10}"
+MAX_TARGETS="${MAX_TARGETS:-16}"
 
 exec python3 - "$MAX_HOPS" "$MAX_TARGETS" "$TOOLS_DIR" "$TARGETS_FILE" <<'PY'
 import json
@@ -252,6 +252,16 @@ def load_targets():
             "purpose": probe.get("purpose"),
             "id": probe.get("id"),
         })
+    for probe in cfg.get("gameProbes", []):
+        targets.append({
+            "label": probe.get("label"),
+            "hostname": probe.get("hostname"),
+            "role": "game-probe",
+            "game": probe.get("game"),
+            "region": probe.get("game"),
+            "purpose": probe.get("purpose"),
+            "id": probe.get("id"),
+        })
     return targets
 
 
@@ -325,7 +335,8 @@ for target in targets:
     })
 
 region_routes = [r for r in routes if r.get("role") == "region-probe" and r.get("pingMs") is not None]
-live_routes = [r for r in routes if r.get("role") != "region-probe" and r.get("pingMs") is not None]
+game_routes = [r for r in routes if r.get("role") == "game-probe" and r.get("pingMs") is not None]
+live_routes = [r for r in routes if r.get("role") not in ("region-probe", "game-probe") and r.get("pingMs") is not None]
 
 region_ranking = sorted(
     region_routes,
@@ -364,6 +375,24 @@ if len(region_ranking) >= 2:
                 "detail": f"{delta:.0f} ms slower than {best_region.get('region')} ({worst.get('pingMs'):.0f} ms vs {best_region.get('pingMs'):.0f} ms)",
             })
 
+for game in ("warzone", "destiny2"):
+    paths = [r for r in game_routes if r.get("game") == game]
+    if not paths:
+        continue
+    best_game = min(paths, key=lambda r: (r.get("pingMs") or 9999, r.get("score") or 9999))
+    title = "Warzone" if game == "warzone" else "Destiny 2"
+    recommendations.append({
+        "type": "game-path",
+        "priority": "high",
+        "title": f"{title} — best path: {best_game.get('label') or best_game.get('hostname')}",
+        "detail": (
+            f"{best_game.get('pingMs'):.1f} ms via {best_game.get('stack')} "
+            f"({best_game.get('hopCount') or '?'} hops) — enforced for Xbox only"
+        ),
+        "hostname": best_game.get("hostname"),
+        "game": game,
+    })
+
 for r in routes:
     if r.get("pathNote"):
         recommendations.append({
@@ -399,10 +428,11 @@ for r in routes:
 priority_order = {"high": 0, "medium": 1, "low": 2}
 recommendations.sort(key=lambda r: priority_order.get(r.get("priority"), 9))
 
-wan_ping = ping_ip("1.1.1.1", count=3)
-wan_hops = parse_traceroute(run_traceroute("1.1.1.1"))
+wan_probe_host = cfg.get("wanProbeHost") or "one.one.one.one"
+wan_ping = ping_ip(wan_probe_host, count=3)
+wan_hops = parse_traceroute(run_traceroute(wan_probe_host))
 wan_route = {
-    "target": "1.1.1.1",
+    "target": wan_probe_host,
     "pingMs": wan_ping,
     "hops": wan_hops,
     "score": composite_score(wan_ping, wan_hops, bottleneck(wan_hops)),

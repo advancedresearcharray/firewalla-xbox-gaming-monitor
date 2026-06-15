@@ -34,6 +34,19 @@
         "high": "high",
         "normal": "normal",
         "low": "low"
+      },
+      "bandwidth": {
+        "mode": "dynamic",
+        "static": {
+          "uploadMbps": 10,
+          "downloadMbps": 50
+        }
+      },
+      "dns": {
+        "enabled": false,
+        "scope": "xbox-only",
+        "resolvers": ["1.1.1.1", "1.0.0.1"],
+        "note": "When enabled, only redirects DNS from XBOX_IP/XBOX_MAC — never changes LAN DHCP or global Firewalla DNS"
       }
     },
     "download": {
@@ -47,6 +60,20 @@
     }
   },
   "rules": [
+    {
+      "id": "warzone-game",
+      "match": ["demonware.net", "demonware.pro", "prod.demonware"],
+      "role": "Warzone game servers",
+      "tier": "critical",
+      "detail": "Activision Demonware — Warzone session, lobby, and in-match relay"
+    },
+    {
+      "id": "destiny2-game",
+      "match": ["bungie.net", "destga.net", "destiny2.com", "destiny.bungie"],
+      "role": "Destiny 2 game servers",
+      "tier": "critical",
+      "detail": "Bungie API, matchmaking, and instance traffic"
+    },
     {
       "id": "matchmaking",
       "match": ["playfabapi.com", "playfab.com"],

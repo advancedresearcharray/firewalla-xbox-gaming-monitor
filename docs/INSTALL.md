@@ -27,9 +27,9 @@ chmod +x scripts/*.sh remote/*.sh
 
 # From your PC — push to Firewalla
 scp -r remote data/route-probes.json scripts/install-on-firewalla.sh \
-  pi@FIREWALLA_IP:/home/pi/gaming-install/
+  pi@A.A.A.A:/home/pi/gaming-install/
 
-ssh pi@FIREWALLA_IP
+ssh pi@A.A.A.A
 cd /home/pi/gaming-install
 bash install-on-firewalla.sh
 nano /home/pi/gaming-tools/gaming.conf
@@ -38,8 +38,8 @@ nano /home/pi/gaming-tools/gaming.conf
 ### Configure `gaming.conf`
 
 ```bash
-XBOX_IP="192.168.1.50"          # Xbox IPv4
-XBOX_MAC="28:EA:0B:xx:xx:xx"    # For IPv6 neighbor lookup
+XBOX_IP="B.B.B.B"                  # Xbox IPv4
+XBOX_MAC="aa:bb:cc:dd:ee:ff"       # For IPv6 neighbor lookup
 XBOX_NAME="Xbox"
 LAN_IF="br2"                    # br0 or br2 depending on network setup
 UPLOAD_IF="ifb0"
@@ -73,8 +73,8 @@ Any Linux machine on the same LAN (Proxmox LXC, Raspberry Pi, NAS, VM).
 ### Option 1: install script (systemd)
 
 ```bash
-sudo FIREWALLA_HOST=192.168.1.1 \
-     XBOX_IP=192.168.1.50 \
+sudo FIREWALLA_HOST=A.A.A.A \
+     XBOX_IP=B.B.B.B \
      PORT=9377 \
      ./scripts/install-dashboard.sh
 ```
@@ -82,7 +82,7 @@ sudo FIREWALLA_HOST=192.168.1.1 \
 The script generates an SSH key — add the printed public key to Firewalla:
 
 ```bash
-ssh pi@FIREWALLA_IP
+ssh pi@A.A.A.A
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
 echo 'ssh-ed25519 AAAA... xbox-gaming-monitor' >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
@@ -95,7 +95,7 @@ chmod 600 ~/.ssh/authorized_keys
 ssh-keygen -t ed25519 -N "" -f deploy/ssh/firewalla-gaming-monitor
 cat deploy/ssh/firewalla-gaming-monitor.pub   # add to Firewalla
 
-FIREWALLA_HOST=192.168.1.1 XBOX_IP=192.168.1.50 docker compose up -d
+FIREWALLA_HOST=A.A.A.A XBOX_IP=B.B.B.B docker compose up -d
 ```
 
 ### Option 3: manual
@@ -111,11 +111,13 @@ systemctl enable --now xbox-traffic-monitor
 
 ## Using the dashboard
 
-1. Open `http://<dashboard-host>:9377/`
+1. Open `http://C.C.C.C:9377/`
 2. Launch a game on Xbox
 3. Watch **Connecting to** for live servers
 4. Click **Probe routes now** for datacenter ranking
 5. **Enforce best paths** (default ON) pushes firewall blocks to Firewalla
+6. **Competitive profile** — choose **Dynamic** bandwidth (Firewalla allocates) or **Static** Mbps caps (Xbox only)
+7. **Xbox-only DNS** — leave off unless you need custom resolvers for the console; laptops/phones keep normal DNS
 
 ---
 
@@ -125,8 +127,10 @@ systemctl enable --now xbox-traffic-monitor
 
 ```bash
 sudo /home/pi/gaming-tools/gaming-role-qos.sh off
+sudo /home/pi/gaming-tools/gaming-bandwidth-qos.sh off
+sudo /home/pi/gaming-tools/gaming-dns-policy.sh off
 sudo /home/pi/gaming-tools/gaming-route-enforce.sh off
-rm -rf /home/pi/gaming-tools/gaming-*.sh /home/pi/gaming-tools/route-probes.json
+rm -rf /home/pi/gaming-tools/gaming-*.sh /home/pi/gaming-tools/xbox-scope.sh /home/pi/gaming-tools/route-probes.json
 # Keep or remove gaming.conf
 ```
 
@@ -145,7 +149,9 @@ sudo rm -rf /opt/xbox-traffic-monitor
 | Issue | Fix |
 |-------|-----|
 | Empty connections | Ensure Xbox is online; check IPv6 — many games use IPv6 only |
-| SSH fails from dashboard | Verify key in `pi@authorized_keys`; test `ssh -i key pi@firewalla bash gaming-snapshot.sh IP` |
+| SSH fails from dashboard | Verify key in `pi@authorized_keys`; test `ssh -i key pi@A.A.A.A bash gaming-snapshot.sh B.B.B.B` |
 | QoS not applied | Run with `sudo`; check `sudo gaming-role-qos.sh status` |
+| Laptop can't reach some sites after changes | Run `sudo gaming-dns-policy.sh off` — DNS override is Xbox-only; if issues persist, switch profile to **Balanced** |
+| Other devices affected | Verify `XBOX_IP` in gaming.conf is the console only (not a shared gateway IP) |
 | Route blocks not active | `sudo gaming-route-enforce.sh status`; run probe first via dashboard |
 | Wrong LAN bridge | Set `LAN_IF` in gaming.conf to match `ip link` |
