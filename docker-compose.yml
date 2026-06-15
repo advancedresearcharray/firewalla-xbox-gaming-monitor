@@ -9,7 +9,7 @@ services:
       - ./deploy/ssh:/root/.ssh:ro
     environment:
       PORT: "9377"
-      POLL_MS: "2500"
+      POLL_MS: "8000"
       FIREWALLA_HOST: "${FIREWALLA_HOST:-A.A.A.A}"
       FIREWALLA_USER: "${FIREWALLA_USER:-pi}"
       FIREWALLA_SSH_KEY: /root/.ssh/firewalla-gaming-monitor

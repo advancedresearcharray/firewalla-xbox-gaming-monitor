@@ -50,7 +50,8 @@ ssh-keyscan -H "$FIREWALLA_HOST" >> /root/.ssh/known_hosts 2>/dev/null || true
 
 cat > /etc/default/xbox-traffic-monitor <<EOF
 PORT=${PORT}
-POLL_MS=2500
+POLL_MS=8000
+NETWORK_HEALTH_MS=1800000
 FIREWALLA_HOST=${FIREWALLA_HOST}
 FIREWALLA_USER=${FIREWALLA_USER}
 FIREWALLA_SSH_KEY=${KEY}

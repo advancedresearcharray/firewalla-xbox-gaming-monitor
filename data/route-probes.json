@@ -3,7 +3,7 @@
   "maxLiveTargetsPerRun": 3,
   "maxHops": 18,
   "wanProbeHost": "one.one.one.one",
-  "probeIntervalSec": 300,
+  "probeIntervalSec": 600,
   "scope": "xbox-only",
   "regionProbes": [
     {
