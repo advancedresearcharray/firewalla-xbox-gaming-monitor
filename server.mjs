@@ -7,6 +7,7 @@ import {
   enrichSnapshot,
   getProfiles,
   ipsForQos,
+  applySuggestedRules,
 } from "./lib/roles.mjs";
 import {
   buildRouteTargets,
@@ -14,6 +15,16 @@ import {
   loadRouteProbesConfig,
   mergeRouteAnalysis,
 } from "./lib/routes.mjs";
+import {
+  aiStatus,
+  applyAiClassifications,
+  generateHeuristicInsights,
+  generateInsights,
+} from "./lib/ai-advisor.mjs";
+import {
+  getAdaptiveThresholds,
+  recordSnapshot,
+} from "./lib/ai-learning.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -50,24 +61,52 @@ let qosStatus = null;
 let lastQosSync = 0;
 let lastError = null;
 let polling = false;
+let lastAiInsights = null;
+let aiInsightsRunning = false;
+let lastEnforcementSync = 0;
+
+function adaptiveThresholds() {
+  return getAdaptiveThresholds(routeConfig);
+}
+
+function buildEnforcement(routeData) {
+  const thresholds = adaptiveThresholds();
+  return buildRouteEnforcement(routeData, routeConfig, thresholds);
+}
 
 function getLatest() {
   if (!rawSnapshot) return null;
   let data = enrichSnapshot(rawSnapshot, trafficProfile);
+  const thresholds = adaptiveThresholds();
   if (lastRouteData) {
-    const enforcement =
-      lastRouteEnforcement || buildRouteEnforcement(lastRouteData, routeConfig);
+    const enforcement = lastRouteEnforcement || buildEnforcement(lastRouteData);
     data = mergeRouteAnalysis(data, lastRouteData, enforcement);
     if (data.routeAnalysis) {
       data.routeAnalysis.enforcementActive = routeEnforcementEnabled;
       data.routeAnalysis.enforcementStatus = routeEnforceStatus;
     }
   }
+  if (lastAiInsights?.unknownClassifications?.length) {
+    data = applyAiClassifications(data, lastAiInsights.unknownClassifications);
+  }
+  const heuristics = generateHeuristicInsights(
+    data,
+    data.routeAnalysis,
+    trafficProfile,
+    { ...routeConfig.enforcement, ...thresholds },
+  );
+  data.aiInsights = {
+    ...heuristics,
+    status: aiStatus(),
+    lastFullAnalysis: lastAiInsights?.timestamp || null,
+    summary: lastAiInsights?.summary || null,
+    adaptiveThresholds: thresholds,
+  };
   return data;
 }
 
 async function applyRouteEnforcement(routeData) {
-  lastRouteEnforcement = buildRouteEnforcement(routeData, routeConfig);
+  lastRouteEnforcement = buildEnforcement(routeData);
   if (!routeEnforcementEnabled) {
     routeEnforceStatus = await sshRun(`sudo ${REMOTE_ENFORCE} off`);
     routeEnforceError = null;
@@ -79,6 +118,7 @@ async function applyRouteEnforcement(routeData) {
     `echo '${b64}' | base64 -d > ${tmp} && sudo ${REMOTE_ENFORCE} sync ${tmp} && rm -f ${tmp}`,
   );
   routeEnforceError = null;
+  lastEnforcementSync = Date.now();
   return { enabled: true, status: routeEnforceStatus, ...lastRouteEnforcement };
 }
 
@@ -200,12 +240,25 @@ async function pollOnce() {
     const out = await fetchSnapshot();
     rawSnapshot = JSON.parse(out);
     lastError = null;
+    recordSnapshot(enrichSnapshot(rawSnapshot, trafficProfile), lastRouteData);
     if (trafficProfile !== "balanced" && Date.now() - lastQosSync > 30000) {
       try {
         await applyQosProfile(trafficProfile);
         lastQosSync = Date.now();
       } catch (err) {
         lastError = `QoS sync: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+    if (
+      routeEnforcementEnabled &&
+      lastRouteData &&
+      Date.now() - lastEnforcementSync > 300000
+    ) {
+      try {
+        await applyRouteEnforcement(lastRouteData);
+        lastEnforcementSync = Date.now();
+      } catch (err) {
+        routeEnforceError = err instanceof Error ? err.message : String(err);
       }
     }
   } catch (err) {
@@ -327,6 +380,58 @@ const server = http.createServer(async (req, res) => {
       status: routeEnforceStatus,
       error: routeEnforceError,
     });
+    return;
+  }
+
+  if (url.pathname === "/api/ai-insights" && req.method === "GET") {
+    sendJson(res, 200, {
+      status: aiStatus(),
+      insights: lastAiInsights,
+      data: getLatest(),
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/ai-insights" && req.method === "POST") {
+    if (aiInsightsRunning) {
+      sendJson(res, 429, { error: "AI analysis already in progress" });
+      return;
+    }
+    const latest = getLatest();
+    if (!latest) {
+      sendJson(res, 503, { error: "No snapshot yet" });
+      return;
+    }
+    aiInsightsRunning = true;
+    try {
+      lastAiInsights = await generateInsights(
+        latest,
+        latest.routeAnalysis,
+        trafficProfile,
+        { ...routeConfig.enforcement, ...adaptiveThresholds() },
+      );
+      sendJson(res, 200, { ok: true, insights: lastAiInsights, data: getLatest() });
+    } catch (err) {
+      sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      aiInsightsRunning = false;
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/ai-rules" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const suggestions = body.rules || lastAiInsights?.roleRuleSuggestions || getLatest()?.aiInsights?.learning?.roleRuleSuggestions;
+      if (!suggestions?.length) {
+        sendJson(res, 400, { error: "No rule suggestions available — run AI analysis first" });
+        return;
+      }
+      const result = applySuggestedRules(suggestions);
+      sendJson(res, 200, { ok: true, ...result, data: getLatest() });
+    } catch (err) {
+      sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
     return;
   }
 

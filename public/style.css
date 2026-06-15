@@ -124,6 +124,29 @@ main {
   font-weight: 500;
 }
 
+.ai-phase-pill {
+  display: inline-block;
+  background: var(--panel-2);
+  border: 1px solid var(--green);
+  color: var(--green);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  margin-right: 0.35rem;
+}
+
+.ai-summary-box {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
 .route-header {
   display: flex;
   justify-content: space-between;

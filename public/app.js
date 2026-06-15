@@ -26,6 +26,13 @@ const els = {
   routeNote: document.getElementById("route-note"),
   regionRankingBody: document.getElementById("region-ranking-body"),
   routesBody: document.getElementById("routes-body"),
+  aiAnalyzeBtn: document.getElementById("ai-analyze-btn"),
+  aiStatus: document.getElementById("ai-status"),
+  aiPhase: document.getElementById("ai-phase"),
+  aiSummary: document.getElementById("ai-summary"),
+  aiLearning: document.getElementById("ai-learning"),
+  aiRecommendations: document.getElementById("ai-recommendations"),
+  aiApplyRulesBtn: document.getElementById("ai-apply-rules-btn"),
   destinationsBody: document.getElementById("destinations-body"),
   connsBody: document.getElementById("conns-body"),
   recentBody: document.getElementById("recent-body"),
@@ -110,6 +117,97 @@ async function setRouteEnforcement(enabled) {
 
 els.routeEnforceOn?.addEventListener("click", () => setRouteEnforcement(true));
 els.routeEnforceOff?.addEventListener("click", () => setRouteEnforcement(false));
+
+async function runAiAnalysis() {
+  els.aiAnalyzeBtn.disabled = true;
+  els.aiAnalyzeBtn.textContent = "Analyzing…";
+  try {
+    const res = await fetch("/api/ai-insights", { method: "POST" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    if (body.data) renderSnapshot({ data: body.data, lastError: null, trafficProfile: activeProfile, routeEnforcementEnabled });
+  } catch (err) {
+    els.aiStatus.textContent = `AI analysis failed: ${err.message}`;
+  } finally {
+    els.aiAnalyzeBtn.disabled = false;
+    els.aiAnalyzeBtn.textContent = "Analyze session";
+  }
+}
+
+els.aiAnalyzeBtn?.addEventListener("click", runAiAnalysis);
+
+async function applySuggestedRules() {
+  els.aiApplyRulesBtn.disabled = true;
+  try {
+    const res = await fetch("/api/ai-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    els.aiStatus.textContent = `Applied ${body.added} new rule(s) to server-roles.json`;
+    if (body.data) renderSnapshot({ data: body.data, lastError: null, trafficProfile: activeProfile, routeEnforcementEnabled });
+  } catch (err) {
+    els.aiStatus.textContent = `Apply rules failed: ${err.message}`;
+  } finally {
+    els.aiApplyRulesBtn.disabled = false;
+  }
+}
+
+els.aiApplyRulesBtn?.addEventListener("click", applySuggestedRules);
+
+function renderAiInsights(ai) {
+  if (!ai) {
+    els.aiPhase.innerHTML = "";
+    els.aiSummary.innerHTML = "";
+    els.aiLearning.innerHTML = "";
+    els.aiRecommendations.innerHTML = "";
+    els.aiApplyRulesBtn.style.display = "none";
+    return;
+  }
+  const phase = ai.sessionPhase || ai.phase;
+  if (phase) {
+    els.aiPhase.innerHTML = `<span class="ai-phase-pill">${(phase.phase || phase).replace(/-/g, " ")}</span> ${phase.detail || ""}`;
+  }
+  const status = ai.status;
+  if (status) {
+    els.aiStatus.textContent = status.enabled
+      ? `LLM enabled (${status.model}) — ${status.cachedClassifications} cached classifications`
+      : "Heuristics + learning active — set AI_API_KEY for LLM summaries";
+  }
+  if (ai.summary) {
+    els.aiSummary.innerHTML = `<div class="ai-summary-box">${ai.summary.replace(/\n/g, "<br>")}</div>`;
+  } else {
+    els.aiSummary.innerHTML = "";
+  }
+
+  const learning = ai.learning || {};
+  const parts = [];
+  if (ai.adaptiveThresholds?.source === "learned") {
+    parts.push(`Adaptive thresholds: path +${ai.adaptiveThresholds.slowPathDeltaMs} ms, region +${ai.adaptiveThresholds.slowRegionDeltaMs} ms`);
+  }
+  if (learning.lobbyPrediction) {
+    const lp = learning.lobbyPrediction;
+    parts.push(`<span class="eff-${lp.risk === "high" ? "poor" : lp.risk === "medium" ? "fair" : "good"}">Lobby risk: ${lp.risk}</span> — ${lp.detail}`);
+  }
+  if ((learning.bandwidthSpikes || []).length) {
+    parts.push(`Bandwidth: ${learning.bandwidthSpikes.map((s) => s.message).join("; ")}`);
+  }
+  if ((learning.roleRuleSuggestions || []).length) {
+    parts.push(`${learning.roleRuleSuggestions.length} hostname rule(s) ready to apply`);
+    els.aiApplyRulesBtn.style.display = "inline-block";
+  } else {
+    els.aiApplyRulesBtn.style.display = "none";
+  }
+  els.aiLearning.innerHTML = parts.length
+    ? `<div class="ai-summary-box">${parts.join("<br>")}</div>`
+    : "";
+
+  const recs = ai.recommendations || [];
+  els.aiRecommendations.innerHTML = recs.length
+    ? recs.map((r) => {
+        const cls = r.priority === "high" ? "route-rec route-rec-high" : r.priority === "medium" ? "route-rec route-rec-med" : "route-rec";
+        return `<div class="${cls}"><strong>${r.title}</strong><br><span class="muted-ip">${r.detail}</span></div>`;
+      }).join("")
+    : "";
+}
 
 async function setTrafficProfile(profile) {
   els.policyStatus.textContent = `Applying ${profile}…`;
@@ -371,6 +469,7 @@ function renderSnapshot(payload) {
   ].join("<br>");
 
   renderRouteAnalysis(data.routeAnalysis, routeProbing, routeEnforcementEnabled);
+  renderAiInsights(data.aiInsights);
 
   const flows = data.topFlows || [];
   els.flowsBody.innerHTML = flows.length

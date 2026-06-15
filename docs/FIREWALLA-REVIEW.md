@@ -106,10 +106,21 @@ Confirm `iptables -L XBOX_ROUTE_ENFORCE` and ipsets are gone.
 
 | Channel | Action |
 |---------|--------|
-| **GitHub Issues** | Bug reports, feature requests on this repo |
+| **[firewalla/firewalla Issues](https://github.com/firewalla/firewalla/issues)** | **Recommended** — official OS repo; open a feature/discussion issue linking to this project |
+| **[firewalla/firewalla PRs](https://github.com/firewalla/firewalla)** | For core integration (e.g. `extension/gaming`); requires AGPL-3.0 compliance |
+| **GitHub Issues (this repo)** | Bug reports, feature requests on the standalone monitor |
 | **Email** | help@firewalla.com — subject: `Community: Xbox Gaming Monitor review` |
 | **Forum** | Post on forum.firewalla.com with link to repo (Tips & Tricks) |
-| **Pull requests** | Welcome for Firewalla-specific improvements |
+| **Pull requests** | Welcome for Firewalla-specific improvements on either repo |
+
+### Relationship to firewalla/firewalla
+
+[github.com/firewalla/firewalla](https://github.com/firewalla/firewalla) is Firewalla's **open-source core** (AGPL-3.0, ~600+ stars). It runs on the box at `/home/pi/firewalla` and includes modules under `extension/`, `net2/`, `flow/`, etc.
+
+This Xbox monitor is a **standalone companion** (MIT license) that:
+- Uses data Firewalla already collects (Redis `conn:*`, conntrack, SQM)
+- Installs only under `/home/pi/gaming-tools/` — no core patches
+- Could eventually be contributed back as an `extension/` module or official App via PR/issue on their repo
 
 ## Suggested email template
 
@@ -138,12 +149,12 @@ Thanks,
 
 | Path | Status | Notes |
 |------|--------|-------|
-| **GitHub (this repo)** | ✅ Ready | Primary distribution; clone + install scripts |
+| **This repo (standalone)** | ✅ Ready | MIT — install via SSH, no core changes |
+| **[firewalla/firewalla](https://github.com/firewalla/firewalla) Issue** | ✅ Best contact | Link this project; ask about `extension/` integration |
+| **firewalla/firewalla PR** | 🔜 Future | Native integration; must comply with AGPL-3.0 |
 | **SSH install on Gold/Purple** | ✅ Ready | Standard admin path today |
 | **Docker dashboard** | ✅ Ready | `docker-compose.yml` included |
-| **Firewalla App Store** | ❓ No public SDK | Contact Firewalla for partner/App integration |
-| **Bundled in firmware** | ❓ Requires partnership | Would need Firewalla engineering |
 
-There is currently **no public third-party App submission portal** like iOS App Store. Community tools for Gold/Purple typically distribute via GitHub + SSH install, which is what this repo provides. For official integration, email or forum contact with Firewalla is the recommended path.
+Official contribution policy on their repo: *"Please submit a pull request for any bugfix or improvement"* — development on `master`, stable on `release_6_0`.
 
 ---

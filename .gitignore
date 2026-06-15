@@ -7,3 +7,6 @@ node_modules/
 .gaming.conf.local
 deploy/gaming.conf.local
 dist/
+data/ai-classifications.json
+data/ai-history.json
+data/ai-host-stats.json

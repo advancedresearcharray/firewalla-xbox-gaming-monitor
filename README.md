@@ -10,6 +10,7 @@ Live Xbox traffic dashboard powered by **Firewalla Gold/Purple**. Monitors conne
 - **Route efficiency** — ping all path candidates, rank Azure datacenter regions
 - **Path enforcement** — iptables DROP on slow alternate IPs for Xbox traffic
 - **Dual-stack** — IPv4 + IPv6 (Warzone and modern titles use IPv6 heavily)
+- **AI advisor** — session phase detection, anomaly alerts, optional LLM summaries and unknown-host classification
 
 ## Architecture
 
@@ -89,6 +90,7 @@ Full guide: [docs/INSTALL.md](docs/INSTALL.md)
 | `/api/traffic-policy` | POST | `{ "profile": "balanced\|competitive\|download" }` |
 | `/api/route-probe` | POST | Force path probe |
 | `/api/route-policy` | GET/POST | Path enforcement on/off |
+| `/api/ai-insights` | GET/POST | Heuristic + optional LLM session analysis |
 | `/api/health` | GET | Service health |
 
 ## For Firewalla team
@@ -99,9 +101,12 @@ We built this as a community tool and would love Firewalla to review it for accu
 
 **Contact options:**
 
-1. Email **help@firewalla.com** with subject `Community: Xbox Gaming Monitor review`
-2. Forum post: [forum.firewalla.com](https://forum.firewalla.com) (Tips & Tricks / Feature Requests)
-3. GitHub Issues on this repo for bugs and feedback
+1. **GitHub Issue** on [firewalla/firewalla](https://github.com/firewalla/firewalla) — official open-source repo (AGPL-3.0); best for engineering visibility
+2. Email **help@firewalla.com** with subject `Community: Xbox Gaming Monitor review`
+3. Forum post: [forum.firewalla.com](https://forum.firewalla.com) (Tips & Tricks / Feature Requests)
+4. GitHub Issues on [this repo](https://github.com/advancedresearcharray/firewalla-xbox-gaming-monitor) for bugs and feedback
+
+This project is **separate from** [firewalla/firewalla](https://github.com/firewalla/firewalla) (the core OS at `/home/pi/firewalla`). Our scripts install under `/home/pi/gaming-tools/` and do not patch core. Long-term, a native integration could live in `extension/` or similar — see [docs/FIREWALLA-REVIEW.md](docs/FIREWALLA-REVIEW.md).
 
 ## Safety notes
 

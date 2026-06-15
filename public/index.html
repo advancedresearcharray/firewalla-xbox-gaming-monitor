@@ -83,6 +83,19 @@
         </details>
       </section>
 
+      <section class="card ai-card">
+        <div class="route-header">
+          <h2>AI advisor</h2>
+          <button type="button" class="policy-btn" id="ai-analyze-btn">Analyze session</button>
+        </div>
+        <p class="section-note" id="ai-status">Local heuristics always on. Set <code>AI_API_KEY</code> for LLM summaries and unknown-host classification.</p>
+        <div id="ai-phase" class="ai-phase"></div>
+        <div id="ai-summary" class="ai-summary"></div>
+        <div id="ai-learning" class="ai-learning"></div>
+        <div id="ai-recommendations" class="route-recs"></div>
+        <button type="button" class="policy-btn" id="ai-apply-rules-btn" style="display:none">Apply suggested rules</button>
+      </section>
+
       <section class="card route-card">
         <div class="route-header">
           <h2>Route efficiency</h2>
