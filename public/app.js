@@ -120,7 +120,7 @@ els.routeEnforceOff?.addEventListener("click", () => setRouteEnforcement(false))
 
 async function runAiAnalysis() {
   els.aiAnalyzeBtn.disabled = true;
-  els.aiAnalyzeBtn.textContent = "Analyzing…";
+  els.aiStatus.textContent = "Refreshing analysis…";
   try {
     const res = await fetch("/api/ai-insights", { method: "POST" });
     const body = await res.json();
@@ -130,7 +130,7 @@ async function runAiAnalysis() {
     els.aiStatus.textContent = `AI analysis failed: ${err.message}`;
   } finally {
     els.aiAnalyzeBtn.disabled = false;
-    els.aiAnalyzeBtn.textContent = "Analyze session";
+    els.aiAnalyzeBtn.textContent = "Refresh analysis";
   }
 }
 
@@ -166,11 +166,9 @@ function renderAiInsights(ai) {
   if (phase) {
     els.aiPhase.innerHTML = `<span class="ai-phase-pill">${(phase.phase || phase).replace(/-/g, " ")}</span> ${phase.detail || ""}`;
   }
-  const status = ai.status;
+  const status = ai.status || ai.advisor;
   if (status) {
-    els.aiStatus.textContent = status.enabled
-      ? `LLM enabled (${status.model}) — ${status.cachedClassifications} cached classifications`
-      : "Heuristics + learning active — set AI_API_KEY for LLM summaries";
+    els.aiStatus.textContent = "Local advisor — heuristics + learning (no cloud API)";
   }
   if (ai.summary) {
     els.aiSummary.innerHTML = `<div class="ai-summary-box">${ai.summary.replace(/\n/g, "<br>")}</div>`;

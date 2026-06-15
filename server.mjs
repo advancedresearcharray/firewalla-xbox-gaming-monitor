@@ -16,8 +16,8 @@ import {
   mergeRouteAnalysis,
 } from "./lib/routes.mjs";
 import {
-  aiStatus,
-  applyAiClassifications,
+  advisorStatus,
+  applyPatternClassifications,
   generateHeuristicInsights,
   generateInsights,
 } from "./lib/ai-advisor.mjs";
@@ -86,8 +86,8 @@ function getLatest() {
       data.routeAnalysis.enforcementStatus = routeEnforceStatus;
     }
   }
-  if (lastAiInsights?.unknownClassifications?.length) {
-    data = applyAiClassifications(data, lastAiInsights.unknownClassifications);
+  if (lastAiInsights?.patternClassifications?.length) {
+    data = applyPatternClassifications(data, lastAiInsights.patternClassifications);
   }
   const heuristics = generateHeuristicInsights(
     data,
@@ -97,7 +97,7 @@ function getLatest() {
   );
   data.aiInsights = {
     ...heuristics,
-    status: aiStatus(),
+    status: advisorStatus(),
     lastFullAnalysis: lastAiInsights?.timestamp || null,
     summary: lastAiInsights?.summary || null,
     adaptiveThresholds: thresholds,
@@ -385,7 +385,7 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === "/api/ai-insights" && req.method === "GET") {
     sendJson(res, 200, {
-      status: aiStatus(),
+      status: advisorStatus(),
       insights: lastAiInsights,
       data: getLatest(),
     });
@@ -404,7 +404,7 @@ const server = http.createServer(async (req, res) => {
     }
     aiInsightsRunning = true;
     try {
-      lastAiInsights = await generateInsights(
+      lastAiInsights = generateInsights(
         latest,
         latest.routeAnalysis,
         trafficProfile,

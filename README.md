@@ -10,7 +10,7 @@ Live Xbox traffic dashboard powered by **Firewalla Gold/Purple**. Monitors conne
 - **Route efficiency** — ping all path candidates, rank Azure datacenter regions
 - **Path enforcement** — iptables DROP on slow alternate IPs for Xbox traffic
 - **Dual-stack** — IPv4 + IPv6 (Warzone and modern titles use IPv6 heavily)
-- **AI advisor** — session phase detection, anomaly alerts, optional LLM summaries and unknown-host classification
+- **Session advisor** — local heuristics, learning, lobby prediction, bandwidth spike detection
 
 ## Architecture
 
@@ -90,7 +90,7 @@ Full guide: [docs/INSTALL.md](docs/INSTALL.md)
 | `/api/traffic-policy` | POST | `{ "profile": "balanced\|competitive\|download" }` |
 | `/api/route-probe` | POST | Force path probe |
 | `/api/route-policy` | GET/POST | Path enforcement on/off |
-| `/api/ai-insights` | GET/POST | Heuristic + optional LLM session analysis |
+| `/api/ai-insights` | GET/POST | Local session analysis (heuristics + learning) |
 | `/api/health` | GET | Service health |
 
 ## For Firewalla team
