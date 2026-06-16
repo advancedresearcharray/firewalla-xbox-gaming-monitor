@@ -50,6 +50,8 @@ const els = {
   nhWanDetail: document.getElementById("nh-wan-detail"),
   nhLowestMtu: document.getElementById("nh-lowest-mtu"),
   nhMtuDetail: document.getElementById("nh-mtu-detail"),
+  nhOffloadScore: document.getElementById("nh-offload-score"),
+  nhOffloadDetail: document.getElementById("nh-offload-detail"),
   nhIssues: document.getElementById("nh-issues"),
   mtuBody: document.getElementById("mtu-body"),
   routeEnforceOn: document.getElementById("route-enforce-on"),
@@ -429,13 +431,13 @@ function natClass(natType) {
 
 function renderNetworkHealth(health, summary, probing, error) {
   if (probing) {
-    els.networkHealthStatus.textContent = "Probing NAT type and path MTU (may take ~30s)…";
+    els.networkHealthStatus.textContent = "Probing NAT type, path MTU, and hardware offload (may take ~30s)…";
     return;
   }
   if (error) {
     els.networkHealthStatus.textContent = `Network health error: ${error}`;
   } else if (health?.probedAt) {
-    els.networkHealthStatus.textContent = `Last probe ${new Date(health.probedAt).toLocaleString()} — NAT & MTU from Firewalla`;
+    els.networkHealthStatus.textContent = `Last probe ${new Date(health.probedAt).toLocaleString()} — NAT, MTU & offload from Firewalla`;
   } else {
     els.networkHealthStatus.textContent = "NAT type and path MTU — detects double NAT, UPnP, and fragmentation risk.";
   }
@@ -463,7 +465,27 @@ function renderNetworkHealth(health, summary, probing, error) {
   els.nhLowestMtu.textContent = lowest != null ? `${lowest}` : "—";
   els.nhMtuDetail.textContent = mtu.recommendation || "—";
 
-  const issues = [...(nat.issues || [])];
+  const offload = health?.offload || {};
+  const offSum = offload.summary || {};
+  const offScore = offSum.overallScore ?? sum.offloadScore;
+  const offStatus = offSum.status || sum.offloadStatus || "unknown";
+  if (offScore != null) {
+    const cls =
+      offStatus === "good" ? "nh-nat-open" : offStatus === "fair" ? "nh-nat-moderate" : "nh-nat-unknown";
+    els.nhOffloadScore.innerHTML = `<span class="${cls}">${offScore}/100</span>`;
+    const path = offload.path || {};
+    const br2 = offload.interfaces?.[path.lan || "br2"]?.scorecard;
+    const parts = [
+      `igc GRO/GSO/checksum on eth0–eth2`,
+      br2?.qdisc ? `${path.lan || "br2"} qdisc ${br2.qdisc}` : null,
+    ].filter(Boolean);
+    els.nhOffloadDetail.textContent = parts.join(" · ");
+  } else {
+    els.nhOffloadScore.textContent = "—";
+    els.nhOffloadDetail.textContent = "Run probe to audit NIC offloads";
+  }
+
+  const issues = [...(nat.issues || []), ...(offSum.issues || [])];
   if (nat.degraded) {
     issues.unshift(`NAT degraded from ${nat.changedFrom} to ${nat.natType}`);
   }

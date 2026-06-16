@@ -34,6 +34,7 @@ install -m 755 "$REMOTE_SRC/gaming-route-probe.sh" "$TOOLS_DIR/gaming-route-prob
 install -m 755 "$REMOTE_SRC/gaming-route-enforce.sh" "$TOOLS_DIR/gaming-route-enforce.sh"
 install -m 755 "$REMOTE_SRC/gaming-nat-check.sh" "$TOOLS_DIR/gaming-nat-check.sh"
 install -m 755 "$REMOTE_SRC/gaming-mtu-probe.sh" "$TOOLS_DIR/gaming-mtu-probe.sh"
+install -m 755 "$REMOTE_SRC/gaming-offload-audit.sh" "$TOOLS_DIR/gaming-offload-audit.sh"
 install -m 755 "$REMOTE_SRC/gaming-firewalla-tune.sh" "$TOOLS_DIR/gaming-firewalla-tune.sh"
 install -m 755 "$REMOTE_SRC/gaming-processor-tune.sh" "$TOOLS_DIR/gaming-processor-tune.sh"
 install -m 644 "$DATA_DIR/route-probes.json" "$TOOLS_DIR/route-probes.json"

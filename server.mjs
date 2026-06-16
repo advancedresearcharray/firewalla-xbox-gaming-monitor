@@ -75,6 +75,9 @@ const REMOTE_NAT =
   process.env.REMOTE_NAT || "/home/pi/gaming-tools/gaming-nat-check.sh";
 const REMOTE_MTU =
   process.env.REMOTE_MTU || "/home/pi/gaming-tools/gaming-mtu-probe.sh";
+const REMOTE_OFFLOAD =
+  process.env.REMOTE_OFFLOAD ||
+  "/home/pi/gaming-tools/gaming-offload-audit.sh";
 const REMOTE_PROCESSOR_TUNE =
   process.env.REMOTE_PROCESSOR_TUNE ||
   "/home/pi/gaming-tools/gaming-processor-tune.sh";
@@ -269,10 +272,14 @@ async function networkHealthProbeOnce() {
       );
       const mtu = JSON.parse(mtuOut);
 
+      const offloadOut = await sshRun(`bash ${REMOTE_OFFLOAD}`);
+      const offload = JSON.parse(offloadOut);
+
       lastNetworkHealth = {
         probedAt: Date.now(),
         nat,
         mtu,
+        offload,
       };
       lastNetworkHealthProbe = Date.now();
       networkHealthError = null;
