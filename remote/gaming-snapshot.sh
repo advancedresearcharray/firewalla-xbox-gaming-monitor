@@ -19,7 +19,7 @@ if [[ -z "$TARGET_IP" ]]; then
   exit 2
 fi
 
-exec python3 - "$TARGET_IP" "$LAN" "$UPLOAD_IF" "$DOWNLOAD_IF" "${XBOX_NAME:-Xbox}" "${XBOX_MAC:-}" "$TOOLS_DIR" "${WAN_PROBE_HOST:-one.one.one.one}" <<'PY'
+exec python3 - "$TARGET_IP" "$LAN" "$UPLOAD_IF" "$DOWNLOAD_IF" "${XBOX_NAME:-Xbox}" "${XBOX_MAC:-}" "$TOOLS_DIR" "${WAN_PROBE_HOST:-one.one.one.one}" "${2:-}" <<'PY'
 import json
 import ipaddress
 import re
@@ -29,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 target_ip, lan, upload_if, download_if, xbox_name, xbox_mac, tools_dir, wan_probe_host = sys.argv[1:9]
+wire_mode = (sys.argv[9] if len(sys.argv) > 9 else "") == "--wire"
 xbox_mac = (xbox_mac or "").upper().replace("-", ":")
 
 def run(cmd, timeout=5):
@@ -638,5 +639,13 @@ payload = {
     },
 }
 
-print(json.dumps(payload, separators=(",", ":")))
+text = json.dumps(payload, separators=(",", ":"))
+if wire_mode:
+    import base64
+    import gzip
+
+    blob = gzip.compress(text.encode("utf-8"), compresslevel=6)
+    print("GZ1:" + base64.b64encode(blob).decode("ascii"))
+else:
+    print(text)
 PY

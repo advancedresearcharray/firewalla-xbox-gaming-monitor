@@ -42,6 +42,8 @@ const els = {
   procDefer: document.getElementById("proc-defer"),
   procFolding: document.getElementById("proc-folding"),
   procFoldingDetail: document.getElementById("proc-folding-detail"),
+  procWire: document.getElementById("proc-wire"),
+  procWireDetail: document.getElementById("proc-wire-detail"),
   nhNatType: document.getElementById("nh-nat-type"),
   nhNatDetail: document.getElementById("nh-nat-detail"),
   nhWanTopology: document.getElementById("nh-wan-topology"),
@@ -534,6 +536,8 @@ function renderProcessor(processor, effectivePollMs, tuning) {
     els.procDefer.textContent = "—";
     els.procFolding.textContent = "—";
     els.procFoldingDetail.textContent = "Run a route probe to fold path features.";
+    els.procWire.textContent = "—";
+    els.procWireDetail.textContent = "—";
     return;
   }
 
@@ -582,6 +586,23 @@ function renderProcessor(processor, effectivePollMs, tuning) {
   } else {
     els.procFolding.textContent = "No probe data";
     els.procFoldingDetail.textContent = "Route folding applies after a route probe.";
+  }
+
+  const wire = processor.wire;
+  const tp = processor.throughput || {};
+  if (wire?.compressionRatio > 1) {
+    const rawKb = ((wire.rawBytes || 0) / 1024).toFixed(1);
+    const wireKb = ((wire.wireBytes || 0) / 1024).toFixed(1);
+    els.procWire.textContent = `${wire.compressionRatio.toFixed(2)}× smaller`;
+    els.procWireDetail.textContent = `Snapshot SSH ${rawKb} KB → ${wireKb} KB (${wire.mode || "gzip"})`;
+  } else if (tp.effectiveControlPlaneKbps != null && tp.physicalDownKbps != null) {
+    els.procWire.textContent = `${(tp.effectiveControlPlaneKbps / Math.max(tp.physicalDownKbps, 1)).toFixed(2)}× eff.`;
+    els.procWireDetail.textContent = `Control-plane effective ${tp.effectiveControlPlaneKbps.toFixed(0)} Kbps`;
+  } else {
+    els.procWire.textContent = wire?.mode === "plain-json" ? "Plain JSON" : "Active";
+    els.procWireDetail.textContent = wire
+      ? `${wire.rawBytes || "?"} B raw over SSH`
+      : "Gzip wire from Firewalla snapshot";
   }
 
   if (tuning?.busy) {

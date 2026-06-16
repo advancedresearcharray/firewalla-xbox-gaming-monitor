@@ -42,6 +42,11 @@ import {
   buildProcessorTelemetry,
   encodeRemotePayload,
 } from "./lib/processor-tune.mjs";
+import {
+  createProcessorWire,
+  decodeProcessorWire,
+  wireStatsSummary,
+} from "./lib/processor-wire.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -111,6 +116,8 @@ let processorTelemetry = null;
 let lastProcessorSample = 0;
 let processorTuneStatus = null;
 let processorTuneError = null;
+let lastWireStats = null;
+let lastProcessorWire = null;
 
 function adaptiveThresholds() {
   return getAdaptiveThresholds(routeConfig);
@@ -156,6 +163,14 @@ function getLatest() {
   if (processorTelemetry) {
     data.processor = processorTelemetry;
   }
+  if (lastProcessorWire) {
+    data.processorWire = {
+      compressionRatio: lastProcessorWire.compressionRatio,
+      rawBytes: lastProcessorWire.rawBytes,
+      compressedBytes: lastProcessorWire.compressedBytes,
+      preservation: lastProcessorWire.preservation,
+    };
+  }
   if (lastRouteData && data.routeAnalysis) {
     data.routeAnalysis.folding = processorTelemetry?.folding || null;
   }
@@ -171,8 +186,10 @@ async function applyRouteEnforcement(routeData) {
   }
   const tmp = `/tmp/xbox-route-enforce-${Date.now()}.json`;
   const encoded = encodeRemotePayload(lastRouteEnforcement);
-  routeEnforceStatus = await sshRun(
-    `${encoded.shellWrite(tmp)} && sudo ${REMOTE_ENFORCE} sync ${tmp} && rm -f ${tmp}`,
+  routeEnforceStatus = await sshRunWithPayload(
+    lastRouteEnforcement,
+    tmp,
+    `sudo ${REMOTE_ENFORCE} sync ${tmp}`,
   );
   routeEnforceError = null;
   lastEnforcementSync = Date.now();
@@ -189,9 +206,10 @@ async function routeProbeOnce() {
       const enriched = enrichSnapshot(rawSnapshot, trafficProfile);
       const targets = buildRouteTargets(enriched, routeConfig);
       const tmpIn = `/tmp/xbox-route-in-${Date.now()}.json`;
-      const encoded = encodeRemotePayload({ targets });
-      const out = await sshRun(
-        `${encoded.shellWrite(tmpIn)} && bash ${REMOTE_ROUTE} ${tmpIn} && rm -f ${tmpIn}`,
+      const out = await sshRunWithPayload(
+        { targets },
+        tmpIn,
+        `bash ${REMOTE_ROUTE} ${tmpIn}`,
       );
       lastRouteData = JSON.parse(out);
       lastRouteProbe = Date.now();
@@ -244,9 +262,10 @@ async function networkHealthProbeOnce() {
 
       const mtuInput = buildMtuTargets(enrichSnapshot(rawSnapshot, trafficProfile));
       const tmpIn = `/tmp/xbox-mtu-in-${Date.now()}.json`;
-      const b64 = Buffer.from(JSON.stringify(mtuInput)).toString("base64");
-      const mtuOut = await sshRun(
-        `echo '${b64}' | base64 -d > ${tmpIn} && bash ${REMOTE_MTU} ${tmpIn} && rm -f ${tmpIn}`,
+      const mtuOut = await sshRunWithPayload(
+        mtuInput,
+        tmpIn,
+        `bash ${REMOTE_MTU} ${tmpIn}`,
       );
       const mtu = JSON.parse(mtuOut);
 
@@ -293,6 +312,7 @@ async function sampleProcessorLoad() {
       cores: FIREWALLA_CORES,
       routeData: lastRouteData,
       snapshot: rawSnapshot ? enrichSnapshot(rawSnapshot, trafficProfile) : null,
+      wireStats: lastWireStats,
     });
     effectivePollMs = processorTelemetry.pollMs;
     lastProcessorSample = Date.now();
@@ -377,8 +397,20 @@ function sshRun(remoteCmd, stdin = null) {
   });
 }
 
+async function sshRunWithPayload(data, tmpPath, followCmd) {
+  const encoded = encodeRemotePayload(data);
+  const transport =
+    encoded.payload.length > 12000 && encoded.shellWriteStdin
+      ? encoded.shellWriteStdin(tmpPath)
+      : { cmd: encoded.shellWrite(tmpPath), stdin: null };
+  const remote = transport.stdin
+    ? `cat | ${transport.cmd} && ${followCmd} && rm -f ${tmpPath}`
+    : `${transport.cmd} && ${followCmd} && rm -f ${tmpPath}`;
+  return sshRun(remote, transport.stdin);
+}
+
 function fetchSnapshot() {
-  return sshRun(`bash ${REMOTE_SCRIPT} ${XBOX_IP}`);
+  return sshRun(`bash ${REMOTE_SCRIPT} ${XBOX_IP} --wire`);
 }
 
 async function applyBandwidthPolicy(profile) {
@@ -431,9 +463,10 @@ async function applyQosProfile(profile) {
   }
   const ips = ipsForQos(rawSnapshot, profile);
   const tmp = `/tmp/xbox-qos-${Date.now()}.json`;
-  const b64 = Buffer.from(JSON.stringify(ips)).toString("base64");
-  qosStatus = await sshRun(
-    `echo '${b64}' | base64 -d > ${tmp} && sudo ${REMOTE_QOS} sync ${profile} ${tmp} && rm -f ${tmp}`,
+  qosStatus = await sshRunWithPayload(
+    ips,
+    tmp,
+    `sudo ${REMOTE_QOS} sync ${profile} ${tmp}`,
   );
   return { profile, ipCount: ips.length, qos: qosStatus };
 }
@@ -446,7 +479,13 @@ async function pollOnce() {
       await sampleProcessorLoad();
     }
     const out = await fetchSnapshot();
-    rawSnapshot = JSON.parse(out);
+    const decoded = decodeProcessorWire(out);
+    rawSnapshot = decoded.snapshot;
+    lastWireStats = wireStatsSummary(
+      { ...decoded.stats, mode: decoded.mode },
+      decoded,
+    );
+    lastProcessorWire = createProcessorWire(rawSnapshot, lastRouteData);
     lastError = null;
     if (processorTelemetry) {
       processorTelemetry = buildProcessorTelemetry({
@@ -456,7 +495,9 @@ async function pollOnce() {
         cores: FIREWALLA_CORES,
         routeData: lastRouteData,
         snapshot: enrichSnapshot(rawSnapshot, trafficProfile),
+        wireStats: lastWireStats,
       });
+      lastProcessorWire = createProcessorWire(rawSnapshot, lastRouteData);
     }
     recordSnapshot(enrichSnapshot(rawSnapshot, trafficProfile), lastRouteData);
     if (trafficProfile !== "balanced" && Date.now() - lastQosSync > 30000) {
