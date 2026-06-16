@@ -1,0 +1,21 @@
+{
+  "active": {
+    "id": "sess-1781576435871",
+    "startedAt": 1781576435871,
+    "gameId": "warzone",
+    "gameLabel": "Call of Duty / Warzone",
+    "trafficProfile": "competitive",
+    "phases": [
+      {
+        "phase": "matchmaking",
+        "at": 1781576435871,
+        "gameId": "warzone"
+      }
+    ],
+    "events": [],
+    "bestRegion": "East US",
+    "peakMatchmakingMs": 75,
+    "lobbyWarnings": 0
+  },
+  "completed": []
+}

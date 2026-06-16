@@ -18,12 +18,14 @@ import {
 import {
   advisorStatus,
   applyPatternClassifications,
+  detectSessionPhase,
   generateHeuristicInsights,
   generateInsights,
 } from "./lib/ai-advisor.mjs";
 import {
   getAdaptiveThresholds,
   recordSnapshot,
+  recordSessionEvent,
 } from "./lib/ai-learning.mjs";
 import {
   loadPolicy,
@@ -121,6 +123,60 @@ let processorTuneStatus = null;
 let processorTuneError = null;
 let lastWireStats = null;
 let lastProcessorWire = null;
+let lastAdvisorPhase = null;
+let lastAdvisorProcessorHealth = null;
+let lastUnknownHostCount = 0;
+let lastAutoAnalysisAt = 0;
+const AUTO_ANALYSIS_COOLDOWN_MS = 15000;
+
+function buildAdvisorContext() {
+  return {
+    processor: processorTelemetry,
+    networkHealth: lastNetworkHealth,
+    trafficProfile,
+  };
+}
+
+function maybeRunAutoAnalysis(enriched, routeAnalysis) {
+  if (!enriched || aiInsightsRunning) return;
+  const now = Date.now();
+  if (now - lastAutoAnalysisAt < AUTO_ANALYSIS_COOLDOWN_MS) return;
+
+  const phase = detectSessionPhase(enriched);
+  const procHealth = processorTelemetry?.health?.status;
+  const natDegraded = lastNetworkHealth?.nat?.degraded;
+  const unknownHeavy = (enriched.destinations || []).filter(
+    (d) => d.roleId === "unknown" && (d.bytes || 0) > 50000,
+  ).length;
+
+  const events = [];
+  if (lastAdvisorPhase && lastAdvisorPhase !== phase.phase) events.push("phase-change");
+  if (procHealth === "stressed" && lastAdvisorProcessorHealth !== "stressed") {
+    events.push("processor-stressed");
+  }
+  if (natDegraded) events.push("nat-degraded");
+  if (unknownHeavy > lastUnknownHostCount) events.push("unknown-host");
+
+  lastAdvisorPhase = phase.phase;
+  lastAdvisorProcessorHealth = procHealth;
+  lastUnknownHostCount = unknownHeavy;
+
+  if (!events.length) return;
+
+  lastAutoAnalysisAt = now;
+  let data = mergeNetworkHealth(enriched, lastNetworkHealth);
+  if (routeAnalysis) {
+    data = { ...data, routeAnalysis };
+  }
+  lastAiInsights = generateInsights(
+    data,
+    data.routeAnalysis,
+    trafficProfile,
+    { ...routeConfig.enforcement, ...adaptiveThresholds() },
+    buildAdvisorContext(),
+  );
+  for (const ev of events) recordSessionEvent(`auto-${ev}`, { phase: phase.phase });
+}
 
 function adaptiveThresholds() {
   return getAdaptiveThresholds(routeConfig);
@@ -155,6 +211,7 @@ function getLatest() {
     data.routeAnalysis,
     trafficProfile,
     { ...routeConfig.enforcement, ...thresholds },
+    buildAdvisorContext(),
   );
   data.aiInsights = {
     ...heuristics,
@@ -506,7 +563,22 @@ async function pollOnce() {
       });
       lastProcessorWire = createProcessorWire(rawSnapshot, lastRouteData);
     }
-    recordSnapshot(enrichSnapshot(rawSnapshot, trafficProfile), lastRouteData);
+    const enriched = enrichSnapshot(rawSnapshot, trafficProfile);
+    let routeAnalysis = null;
+    if (lastRouteData) {
+      const enforcement = lastRouteEnforcement || buildEnforcement(lastRouteData);
+      const merged = mergeRouteAnalysis(enriched, lastRouteData, enforcement);
+      routeAnalysis = merged.routeAnalysis;
+      routeAnalysis.enforcementActive = routeEnforcementEnabled;
+    }
+    const phase = detectSessionPhase(enriched);
+    recordSnapshot(enriched, routeAnalysis, {
+      processor: processorTelemetry,
+      networkHealth: lastNetworkHealth,
+      trafficProfile,
+      sessionPhase: phase,
+    });
+    maybeRunAutoAnalysis(enriched, routeAnalysis);
     if (trafficProfile !== "balanced" && Date.now() - lastQosSync > 30000) {
       try {
         await applyCompetitivePolicies(trafficProfile);
@@ -758,6 +830,8 @@ const server = http.createServer(async (req, res) => {
       status: advisorStatus(),
       insights: lastAiInsights,
       data: getLatest(),
+      sessions: lastAiInsights?.learning?.sessions || null,
+      outcomeStats: lastAiInsights?.learning?.outcomeStats || null,
     });
     return;
   }
@@ -779,6 +853,7 @@ const server = http.createServer(async (req, res) => {
         latest.routeAnalysis,
         trafficProfile,
         { ...routeConfig.enforcement, ...adaptiveThresholds() },
+        buildAdvisorContext(),
       );
       sendJson(res, 200, { ok: true, insights: lastAiInsights, data: getLatest() });
     } catch (err) {

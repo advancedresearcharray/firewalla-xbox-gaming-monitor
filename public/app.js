@@ -311,11 +311,15 @@ function renderAiInsights(ai) {
   }
   const phase = ai.sessionPhase || ai.phase;
   if (phase) {
-    els.aiPhase.innerHTML = `<span class="ai-phase-pill">${(phase.phase || phase).replace(/-/g, " ")}</span> ${phase.detail || ""}`;
+    const game = phase.game?.label || ai.learning?.game?.label;
+    const gameBadge = game && game !== "Xbox gaming" ? ` · ${game}` : "";
+    els.aiPhase.innerHTML = `<span class="ai-phase-pill">${(phase.phase || phase).replace(/-/g, " ")}</span>${gameBadge} ${phase.detail || ""}`;
   }
   const status = ai.status || ai.advisor;
-  if (status) {
-    els.aiStatus.textContent = "Local advisor — heuristics + learning (no cloud API)";
+  if (status?.engine) {
+    els.aiStatus.textContent = `Local advisor — ${status.engine}`;
+  } else {
+    els.aiStatus.textContent = "Local advisor — heuristics + learning + outcomes";
   }
   if (ai.summary) {
     els.aiSummary.innerHTML = `<div class="ai-summary-box">${ai.summary.replace(/\n/g, "<br>")}</div>`;
@@ -335,6 +339,20 @@ function renderAiInsights(ai) {
   if ((learning.bandwidthSpikes || []).length) {
     parts.push(`Bandwidth: ${learning.bandwidthSpikes.map((s) => s.message).join("; ")}`);
   }
+  const os = learning.outcomeStats?.trafficProfile;
+  if (os?.evaluated >= 2 && os.successRate != null) {
+    parts.push(`Competitive profile helped ${Math.round(os.successRate * 100)}% of ${os.evaluated} tracked cases`);
+  }
+  if (learning.sessions?.active) {
+    const s = learning.sessions.active;
+    parts.push(`Active session: ${s.gameLabel || s.gameId} · ${s.phases?.length || 1} phase(s)`);
+  } else if ((learning.sessions?.recent || []).length) {
+    const last = learning.sessions.recent[0];
+    parts.push(`Last session: ${last.gameLabel || last.gameId} · ${last.durationSec ? `${last.durationSec}s` : "?"}`);
+  }
+  for (const p of learning.sessions?.patterns || []) {
+    parts.push(p);
+  }
   if ((learning.roleRuleSuggestions || []).length) {
     parts.push(`${learning.roleRuleSuggestions.length} hostname rule(s) ready to apply`);
     els.aiApplyRulesBtn.style.display = "inline-block";
@@ -347,11 +365,67 @@ function renderAiInsights(ai) {
 
   const recs = ai.recommendations || [];
   els.aiRecommendations.innerHTML = recs.length
-    ? recs.map((r) => {
+    ? recs.map((r, idx) => {
         const cls = r.priority === "high" ? "route-rec route-rec-high" : r.priority === "medium" ? "route-rec route-rec-med" : "route-rec";
-        return `<div class="${cls}"><strong>${r.title}</strong><br><span class="muted-ip">${r.detail}</span></div>`;
+        const actionBtn = r.action
+          ? `<button type="button" class="policy-btn ai-action-btn" data-rec-idx="${idx}">Apply</button>`
+          : "";
+        return `<div class="${cls} ai-rec-card" data-rec-idx="${idx}"><strong>${r.title}</strong><br><span class="muted-ip">${r.detail}</span>${actionBtn ? `<div class="ai-rec-actions">${actionBtn}</div>` : ""}</div>`;
       }).join("")
     : "";
+  els.aiRecommendations.querySelectorAll(".ai-action-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const idx = Number(btn.dataset.recIdx);
+      const rec = recs[idx];
+      if (rec?.action) executeRecommendationAction(rec.action, rec);
+    });
+  });
+}
+
+async function executeRecommendationAction(action, rec) {
+  if (!action?.type) return;
+  els.aiStatus.textContent = `Applying: ${rec?.title || action.type}…`;
+  try {
+    switch (action.type) {
+      case "traffic-profile":
+        await setTrafficProfile(action.value);
+        break;
+      case "route-probe":
+        await probeRoutes();
+        break;
+      case "route-enforce-on":
+        await setRouteEnforcement(true);
+        break;
+      case "network-health-probe":
+        await probeNetworkHealth();
+        break;
+      case "processor-tune": {
+        const res = await fetch("/api/processor-tune", { method: "POST" });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || res.statusText);
+        if (body.processor) renderProcessor(body.processor, body.processor.pollMs);
+        break;
+      }
+      case "apply-rule": {
+        const res = await fetch("/api/ai-rules", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rules: [action.value] }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || res.statusText);
+        els.aiStatus.textContent = `Applied rule for ${action.value?.hostname || "host"}`;
+        break;
+      }
+      default:
+        throw new Error(`Unknown action: ${action.type}`);
+    }
+    els.aiStatus.textContent = `Applied: ${rec?.title || action.type}`;
+    await runAiAnalysis();
+  } catch (err) {
+    els.aiStatus.textContent = `Action failed: ${err.message}`;
+  }
 }
 
 async function setTrafficProfile(profile) {

@@ -261,10 +261,13 @@ tr.route-best td:first-child {
   background: rgba(61, 214, 140, 0.12);
 }
 
-.policy-status {
-  color: var(--muted);
-  font-size: 0.85rem;
-  margin: 0 0 0.75rem;
+.ai-rec-actions {
+  margin-top: 0.5rem;
+}
+
+.ai-action-btn {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.65rem;
 }
 
 .network-health-grid {
