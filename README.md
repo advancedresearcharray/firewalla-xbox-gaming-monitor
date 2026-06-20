@@ -17,15 +17,22 @@ Live Xbox traffic dashboard powered by **Firewalla Gold/Purple**. Monitors conne
 ## Architecture
 
 ```
-┌─────────────┐     SSH      ┌──────────────────┐     FORWARD     ┌──────┐
-│  Dashboard  │─────────────▶│  Firewalla Gold  │◀───────────────▶│ Xbox │
-│  (Node.js)  │  snapshot.sh │  gaming-tools/   │   QoS + blocks  └──────┘
-└─────────────┘              └──────────────────┘
+┌─────────────┐   HTTP :9378    ┌──────────────────────┐   on-box scripts   ┌──────┐
+│  Dashboard  │──────────────▶│  array-firewalla-api │───────────────────▶│ Xbox │
+│  (Node.js)  │  Bearer token │  on Firewalla Gold   │  QoS + snapshots   └──────┘
+└─────────────┘               │  gaming-tools/       │
+                              └──────────────────────┘
+                                      ▲
+                                      │ localhost netbot bridge
+                               official Firewalla netbot API
 ```
+
+The dashboard **never** opens SSH to Firewalla. All remote operations go through [array-firewalla-api](https://github.com/advancedresearcharray/array-firewalla-api) on the LAN (`POST /api/v1/run`, `/api/v1/netbot`, `/api/v1/tools/update`).
 
 | Component | Runs on | Purpose |
 |-----------|---------|---------|
-| `remote/gaming-snapshot.sh` | Firewalla | JSON collector (conntrack, Redis, ping, tcpdump) |
+| `array-firewalla-api` | Firewalla | LAN HTTP API + netbot bridge |
+| `remote/gaming-snapshot.sh` | Firewalla | JSON collector (netbot flows/hosts, conntrack, Redis) |
 | `remote/gaming-role-qos.sh` | Firewalla | Per-destination DSCP marking |
 | `remote/gaming-route-probe.sh` | Firewalla | Path probing + datacenter ranking |
 | `remote/gaming-route-enforce.sh` | Firewalla | Block slow paths (ipset + iptables) |
@@ -48,27 +55,35 @@ WAN latency probes use the public hostname `one.one.one.one` (configurable via `
 
 ## Quick start
 
-### 1. Install scripts on Firewalla
+### 1. Bootstrap LAN API on Firewalla (one-time)
 
-Enable **SSH** on Firewalla (App → Settings → Advanced → SSH).
+Install [array-firewalla-api](https://github.com/advancedresearcharray/array-firewalla-api) on the box. After bootstrap, **SSH is not required** for the dashboard or deploy scripts.
+
+See `array-firewalla-api` → `scripts/bootstrap-firewalla-api-once.sh` (one-time only), then verify:
 
 ```bash
-git clone https://github.com/advancedresearcharray/firewalla-xbox-gaming-monitor.git
-cd firewalla-xbox-gaming-monitor
-
-# Copy scripts to Firewalla
-scp -r remote/ data/route-probes.json deploy/gaming.conf.example \
-  pi@A.A.A.A:/tmp/gaming-install/
-
-ssh pi@A.A.A.A
-  cd /tmp/gaming-install
-  # Edit gaming.conf.example → set XBOX_IP, XBOX_MAC, LAN_IF
-  bash ../scripts/install-on-firewalla.sh   # or run from repo on Firewalla
-  nano /home/pi/gaming-tools/gaming.conf
-  bash /home/pi/gaming-tools/gaming-snapshot.sh | head -c 500   # smoke test
+curl -sS http://A.A.A.A:9378/api/health
 ```
 
-### 2. Install dashboard (any Linux host on LAN)
+### 2. Push gaming-tools over LAN API
+
+From a host on your LAN (with `FIREWALLA_API_TOKEN` set):
+
+```bash
+FIREWALLA_API_URL=http://A.A.A.A:9378 ./scripts/push-firewalla-tools-api.sh
+```
+
+Edit `/home/pi/gaming-tools/gaming.conf` on Firewalla (App console or one-time shell access) — set `XBOX_IP`, `XBOX_MAC`, `LAN_IF`.
+
+Smoke test via API:
+
+```bash
+curl -sS -H "Authorization: Bearer $FIREWALLA_API_TOKEN" \
+  -X POST "http://A.A.A.A:9378/api/v1/run" \
+  -d '{"script":"gaming-snapshot.sh","args":["B.B.B.B"],"sudo":false}' | head -c 500
+```
+
+### 3. Install dashboard (any Linux host on LAN)
 
 ```bash
 sudo FIREWALLA_API_URL=http://A.A.A.A:9378 FIREWALLA_API_TOKEN=<your-token> XBOX_IP=B.B.B.B ./scripts/install-dashboard.sh
@@ -87,8 +102,8 @@ Full guide: [docs/INSTALL.md](docs/INSTALL.md)
 
 | Item | Requirement |
 |------|-------------|
-| Firewalla | **Gold or Purple** recommended (SSH, SQM, ifb, Redis, conntrack) |
-| SSH | Enabled; `pi` user (default Firewalla SSH) |
+| Firewalla | **Gold or Purple** (SQM, ifb, Redis, conntrack) |
+| LAN API | [array-firewalla-api](https://github.com/advancedresearcharray/array-firewalla-api) on `:9378`, LAN CIDR + bearer token |
 | Dashboard host | Node.js 20+ or Docker (e.g. `C.C.C.C`) |
 | Xbox | Static DHCP reservation recommended — set `B.B.B.B` + MAC in `gaming.conf` |
 

@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Install gaming monitor scripts on Firewalla Gold / Purple.
 #
-# Run ON Firewalla as pi (after copying files), OR from repo via:
+# Preferred: push from LAN via ./scripts/push-firewalla-tools-api.sh (no SSH).
+# This script is for on-box install only (offline bundle / console access).
+#
+# Run ON Firewalla as pi after files are present, OR from repo:
 #   ./scripts/install-on-firewalla.sh
 #
 set -euo pipefail

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Create a single tarball for Firewalla team / manual install.
-# Contains everything needed to run install-on-firewalla.sh on the box.
+# Create a tarball of gaming-tools for manual on-box install (offline fallback).
+# Normal deploy uses LAN API — see scripts/push-firewalla-tools-api.sh
 #
 # Usage:
 #   ./scripts/make-firewalla-bundle.sh
-#   scp dist/firewalla-gaming-tools-*.tar.gz pi@A.A.A.A:/tmp/
-#   ssh pi@A.A.A.A 'cd /tmp && tar xzf firewalla-gaming-tools-*.tar.gz && cd firewalla-gaming-tools && bash install-on-firewalla.sh'
+#   # Copy tarball to Firewalla via console/USB, then on-box:
+#   tar xzf firewalla-gaming-tools-*.tar.gz && cd firewalla-gaming-tools && bash install-on-firewalla.sh
 #
 set -euo pipefail
 
@@ -28,6 +28,7 @@ rm -rf "$WORKDIR"
 
 echo "Created: $OUT"
 echo ""
-echo "Send to Firewalla for testing:"
-echo "  scp $OUT pi@A.A.A.A:/tmp/"
-echo "  ssh pi@A.A.A.A 'cd /tmp && tar xzf $(basename "$OUT") && cd firewalla-gaming-tools && bash install-on-firewalla.sh'"
+echo "Preferred: push over LAN API (no SSH):"
+echo "  FIREWALLA_API_URL=http://A.A.A.A:9378 FIREWALLA_API_TOKEN=... ./scripts/push-firewalla-tools-api.sh"
+echo ""
+echo "Offline fallback: copy tarball to Firewalla and run install-on-firewalla.sh on-box."

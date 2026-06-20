@@ -2,67 +2,81 @@
 
 ## Overview
 
-Two parts:
+Three parts:
 
-1. **Firewalla scripts** (`remote/`) — data collection, QoS, route probe, route enforcement
-2. **Dashboard** (`server.mjs`) — polls Firewalla over SSH, serves web UI
+1. **array-firewalla-api** on Firewalla — LAN HTTP API (one-time bootstrap)
+2. **Gaming scripts** (`remote/`) — pushed via API, not SSH
+3. **Dashboard** (`server.mjs`) — polls Firewalla over HTTP, serves web UI
+
+The dashboard **does not use SSH** to reach Firewalla.
 
 ---
 
-## Part A — Firewalla (Gold / Purple)
+## Part A — array-firewalla-api (Firewalla Gold / Purple)
 
 ### Prerequisites
 
 - Firewalla Gold or Purple on recent firmware (6.x+)
-- SSH enabled: Firewalla App → **Settings → Advanced → SSH → ON**
 - Xbox on LAN with known IPv4 (and ideally MAC for IPv6 discovery)
 - Gaming Mode / QoS enabled on Firewalla (uses existing SQM/ifb)
 
-### Install
+### One-time bootstrap
+
+Install [array-firewalla-api](https://github.com/advancedresearcharray/array-firewalla-api) on the box. Follow that repo's bootstrap script once, then set `BIND_ADDRESS`, LAN CIDR allowlist, and bearer token in `/etc/default/firewalla-api`.
+
+Verify:
 
 ```bash
-git clone https://github.com/advancedresearcharray/firewalla-xbox-gaming-monitor.git
-cd firewalla-xbox-gaming-monitor
-chmod +x scripts/*.sh remote/*.sh
+curl -sS http://A.A.A.A:9378/api/health
+# netbotBridge.ok should be true
+```
 
-# From your PC — push to Firewalla
-scp -r remote data/route-probes.json scripts/install-on-firewalla.sh \
-  pi@A.A.A.A:/home/pi/gaming-install/
+### Push gaming-tools (no SSH)
 
-ssh pi@A.A.A.A
-cd /home/pi/gaming-install
-bash install-on-firewalla.sh
-nano /home/pi/gaming-tools/gaming.conf
+From any LAN host with the API token:
+
+```bash
+export FIREWALLA_API_URL=http://A.A.A.A:9378
+export FIREWALLA_API_TOKEN=<your-token>
+./scripts/push-firewalla-tools-api.sh
+```
+
+Or use the fleet deploy script from your ops host:
+
+```bash
+./scripts/deploy-xbox-traffic-monitor.sh
 ```
 
 ### Configure `gaming.conf`
 
+On Firewalla, edit `/home/pi/gaming-tools/gaming.conf`:
+
 ```bash
-XBOX_IP="B.B.B.B"                  # Xbox IPv4
-XBOX_MAC="aa:bb:cc:dd:ee:ff"       # For IPv6 neighbor lookup
+XBOX_IP="B.B.B.B"
+XBOX_MAC="aa:bb:cc:dd:ee:ff"
 XBOX_NAME="Xbox"
-LAN_IF="br2"                    # br0 or br2 depending on network setup
+LAN_IF="br2"
 UPLOAD_IF="ifb0"
 DOWNLOAD_IF="ifb1"
 ```
 
-Find LAN bridge: `ip link | grep br`
+Find LAN bridge: `ip link | grep br` (on-box console if needed).
 
-### Verify on Firewalla
+### Verify via LAN API
 
 ```bash
-# Snapshot JSON (should show xbox, connections, destinations)
-bash /home/pi/gaming-tools/gaming-snapshot.sh | python3 -m json.tool | head -40
+# Snapshot JSON
+curl -sS -H "Authorization: Bearer $FIREWALLA_API_TOKEN" \
+  -X POST "$FIREWALLA_API_URL/api/v1/run" \
+  -d '{"script":"gaming-snapshot.sh","args":["B.B.B.B"],"sudo":false}' | python3 -m json.tool | head -40
 
-# Route probe (takes ~30–60s)
-bash /home/pi/gaming-tools/gaming-route-probe.sh | python3 -m json.tool | head -30
-
-# QoS status (requires sudo)
-sudo /home/pi/gaming-tools/gaming-role-qos.sh status
-
-# Route enforcement (requires sudo)
-sudo /home/pi/gaming-tools/gaming-route-enforce.sh status
+# QoS status
+curl -sS -H "Authorization: Bearer $FIREWALLA_API_TOKEN" \
+  -X POST "$FIREWALLA_API_URL/api/v1/run" \
+  -d '{"script":"gaming-role-qos.sh","args":["status"],"sudo":true}'
 ```
+
+**Offline fallback:** If API is not yet available, run `scripts/install-on-firewalla.sh` directly on the box (copy files via USB/console). Normal operation still uses HTTP only.
 
 ---
 
@@ -73,29 +87,22 @@ Any Linux machine on the same LAN (Proxmox LXC, Raspberry Pi, NAS, VM).
 ### Option 1: install script (systemd)
 
 ```bash
-sudo FIREWALLA_HOST=A.A.A.A \
+sudo FIREWALLA_API_URL=http://A.A.A.A:9378 \
+     FIREWALLA_API_TOKEN=<your-token> \
      XBOX_IP=B.B.B.B \
      PORT=9377 \
      ./scripts/install-dashboard.sh
 ```
 
-The script generates an SSH key — add the printed public key to Firewalla:
-
-```bash
-ssh pi@A.A.A.A
-mkdir -p ~/.ssh && chmod 700 ~/.ssh
-echo 'ssh-ed25519 AAAA... xbox-gaming-monitor' >> ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
-```
+No SSH keys. The script verifies the LAN API before starting.
 
 ### Option 2: Docker Compose
 
 ```bash
-# Generate key and authorize on Firewalla first
-ssh-keygen -t ed25519 -N "" -f deploy/ssh/firewalla-gaming-monitor
-cat deploy/ssh/firewalla-gaming-monitor.pub   # add to Firewalla
-
-FIREWALLA_HOST=A.A.A.A XBOX_IP=B.B.B.B docker compose up -d
+FIREWALLA_API_URL=http://A.A.A.A:9378 \
+FIREWALLA_API_TOKEN=<your-token> \
+XBOX_IP=B.B.B.B \
+docker compose up -d
 ```
 
 ### Option 3: manual
@@ -107,6 +114,8 @@ cp deploy/xbox-traffic-monitor.service /etc/systemd/system/
 systemctl enable --now xbox-traffic-monitor
 ```
 
+Required env: `FIREWALLA_API_URL`, `FIREWALLA_API_TOKEN`, `XBOX_IP`.
+
 ---
 
 ## Using the dashboard
@@ -115,23 +124,20 @@ systemctl enable --now xbox-traffic-monitor
 2. Launch a game on Xbox
 3. Watch **Connecting to** for live servers
 4. Click **Probe routes now** for datacenter ranking
-5. **Enforce best paths** (default ON) pushes firewall blocks to Firewalla
-6. **Competitive profile** — choose **Dynamic** bandwidth (Firewalla allocates) or **Static** Mbps caps (Xbox only)
-7. **Xbox-only DNS** — leave off unless you need custom resolvers for the console; laptops/phones keep normal DNS
+5. **Enforce best paths** (default ON) pushes firewall blocks via API
+6. **Competitive profile** — dynamic bandwidth (official netbot policies) or static Mbps caps
+7. **Xbox-only DNS** — leave off unless you need custom resolvers for the console
 
 ---
 
 ## Uninstall
 
-**Firewalla:**
+**Firewalla (via API):**
 
 ```bash
-sudo /home/pi/gaming-tools/gaming-role-qos.sh off
-sudo /home/pi/gaming-tools/gaming-bandwidth-qos.sh off
-sudo /home/pi/gaming-tools/gaming-dns-policy.sh off
-sudo /home/pi/gaming-tools/gaming-route-enforce.sh off
-rm -rf /home/pi/gaming-tools/gaming-*.sh /home/pi/gaming-tools/xbox-scope.sh /home/pi/gaming-tools/route-probes.json
-# Keep or remove gaming.conf
+curl -H "Authorization: Bearer $FIREWALLA_API_TOKEN" -X POST "$FIREWALLA_API_URL/api/v1/run" \
+  -d '{"script":"gaming-role-qos.sh","args":["off"],"sudo":true}'
+# repeat for gaming-bandwidth-qos.sh, gaming-dns-policy.sh, gaming-route-enforce.sh off
 ```
 
 **Dashboard:**
@@ -149,9 +155,8 @@ sudo rm -rf /opt/xbox-traffic-monitor
 | Issue | Fix |
 |-------|-----|
 | Empty connections | Ensure Xbox is online; check IPv6 — many games use IPv6 only |
-| SSH fails from dashboard | Verify key in `pi@authorized_keys`; test `ssh -i key pi@A.A.A.A bash gaming-snapshot.sh B.B.B.B` |
-| QoS not applied | Run with `sudo`; check `sudo gaming-role-qos.sh status` |
-| Laptop can't reach some sites after changes | Run `sudo gaming-dns-policy.sh off` — DNS override is Xbox-only; if issues persist, switch profile to **Balanced** |
-| Other devices affected | Verify `XBOX_IP` in gaming.conf is the console only (not a shared gateway IP) |
-| Route blocks not active | `sudo gaming-route-enforce.sh status`; run probe first via dashboard |
-| Wrong LAN bridge | Set `LAN_IF` in gaming.conf to match `ip link` |
+| API 401 / connection refused | Verify `FIREWALLA_API_TOKEN`; check `curl …/api/health` and `netbotBridge.ok` |
+| QoS not applied | Run role-qos with `"sudo":true` via `/api/v1/run`; check dashboard profile |
+| Laptop can't reach some sites | Run `gaming-dns-policy.sh off` via API — DNS override is Xbox-only |
+| Route blocks not active | Probe routes from dashboard first; check enforce status via API |
+| Wrong LAN bridge | Set `LAN_IF` in gaming.conf |
