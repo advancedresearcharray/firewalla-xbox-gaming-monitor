@@ -1,0 +1,16 @@
+[Unit]
+Description=Array Folding Compression Engine (guide v2 / Zenodo 18728103)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/array-compression
+EnvironmentFile=-/etc/default/array-compression
+Environment=ARRAY_NATIVE_LIB=/opt/arrayfolding/libarray_core.so
+ExecStart=/usr/bin/python3 -m uvicorn server:app --host 0.0.0.0 --port 8200 --workers 1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

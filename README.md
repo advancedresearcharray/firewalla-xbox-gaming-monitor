@@ -130,6 +130,15 @@ This project is **separate from** [firewalla/firewalla](https://github.com/firew
 - Scripts are read-only on Firewalla except for explicit QoS/enforcement sync commands
 - No Firewalla OS or app modification required — files live in `/home/pi/gaming-tools/`
 
+## Array compression engine (container)
+
+Per [CPU, Memory & Storage Compression Guide v2](docs/cpu_memory_storage_compression_guide_v2.pdf) ([Zenodo 10.5281/zenodo.18728103](https://doi.org/10.5281/zenodo.18728103)):
+
+- **Firewalla** — lightweight preabstract snapshots only (`FLD1`/`GZ1`); no SDK on the appliance
+- **Dashboard LXC (CT933)** — full compression service on port **8200** (`array-compression/server.py`)
+- Deploy: `./scripts/deploy-array-compression.sh`
+- Optional native SDK: push `arrayfolding-1.0.0-py3-none-any.whl` + `libarray_core.so` to `/opt/arrayfolding/` inside the container
+
 ## License
 
 MIT — see [LICENSE](LICENSE)
