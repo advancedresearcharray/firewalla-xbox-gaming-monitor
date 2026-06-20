@@ -2,6 +2,8 @@
 
 Live Xbox traffic dashboard powered by **Firewalla Gold/Purple**. Monitors connections during gaming, classifies server roles (matchmaking, CDN, telemetry), applies per-destination QoS, probes internet paths (IPv4 vs IPv6), and **blocks slow routes at the firewall** so the console uses the fastest path.
 
+> **Disclaimer:** This is an independent community project. It is **not affiliated with, endorsed by, or supported by Firewalla Inc.** It modifies network behavior on your Firewalla device using scripts, QoS rules, and internal APIs. **Use at your own risk.** You are solely responsible for any impact to your network, device stability, security, or warranty. Firewalla may change internal behavior at any time, which could break this software without notice.
+
 ## Features
 
 - **Live dashboard** — bandwidth, connections, latency, server roles
