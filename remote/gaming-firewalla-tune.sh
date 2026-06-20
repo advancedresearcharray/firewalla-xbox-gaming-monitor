@@ -118,8 +118,33 @@ cmd_status() {
   [[ -f "$STATE" ]] && echo "=== last tune ===" && tail -5 "$STATE"
 }
 
+cmd_link_status() {
+  for i in 0 1 2 3; do
+    echo "=== Port $((i + 1)) eth${i} ==="
+    ethtool "eth${i}" 2>/dev/null | egrep 'Speed|Duplex|Link detected|Auto-negotiation' || echo unavailable
+  done
+}
+
+cmd_link_reset() {
+  local iface="${1:-all}"
+  reset_one() {
+    local dev="$1"
+    log "Restart autoneg on ${dev}"
+    ethtool -r "$dev" 2>/dev/null || sudo ethtool -r "$dev" 2>/dev/null || true
+    sleep 2
+    ethtool "$dev" 2>/dev/null | egrep 'Speed|Duplex|Link detected' || true
+  }
+  if [[ "$iface" == "all" ]]; then
+    for i in 0 1 2 3; do reset_one "eth${i}"; done
+  else
+    reset_one "$iface"
+  fi
+}
+
 case "${1:-apply}" in
   apply) cmd_apply ;;
   status) cmd_status ;;
-  *) echo "Usage: $0 {apply|status}"; exit 2 ;;
+  link-status) cmd_link_status ;;
+  link-reset) cmd_link_reset "${2:-all}" ;;
+  *) echo "Usage: $0 {apply|status|link-status|link-reset [ethN|all]}"; exit 2 ;;
 esac

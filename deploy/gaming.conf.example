@@ -19,3 +19,7 @@ WAN_PROBE_HOST="one.one.one.one"
 # When enabled, gaming-dns-policy.sh redirects DNS only from XBOX_IP — never LAN-wide.
 # XBOX_DNS_PRIMARY="1.1.1.1"
 # XBOX_DNS_SECONDARY="1.0.0.1"
+
+# Xbox buffer profile (competitive mode): normal | large | max
+# Controlled by dashboard; gaming-buffer-tune.sh writes .xbox-buffer.env
+# XBOX_BUFFER_PROFILE="large"

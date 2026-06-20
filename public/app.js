@@ -23,6 +23,8 @@ const els = {
   bwUpload: document.getElementById("bw-upload"),
   bwDownload: document.getElementById("bw-download"),
   bandwidthStatus: document.getElementById("bandwidth-status"),
+  bufferModeButtons: document.getElementById("buffer-mode-buttons"),
+  bufferStatus: document.getElementById("buffer-status"),
   dnsEnabled: document.getElementById("dns-enabled"),
   dnsFields: document.getElementById("dns-fields"),
   dnsPrimary: document.getElementById("dns-primary"),
@@ -76,7 +78,7 @@ const els = {
   chart: document.getElementById("chart"),
 };
 
-const ctx = els.chart.getContext("2d");
+const ctx = els.chart?.getContext("2d") ?? null;
 
 function formatBytes(n) {
   const v = Number(n) || 0;
@@ -131,14 +133,30 @@ function formatRole(item) {
 let activeProfile = "balanced";
 let competitivePolicy = {
   bandwidth: { mode: "dynamic", uploadMbps: 10, downloadMbps: 50 },
+  buffers: { mode: "large" },
   dns: { enabled: false, primary: "1.1.1.1", secondary: "1.0.0.1" },
 };
+let competitiveDirty = false;
+let applyingCompetitive = false;
 let routeEnforcementEnabled = true;
+
+const BUFFER_LABELS = {
+  normal: "normal (512K Xbox burst)",
+  large: "large (2M Xbox burst)",
+  max: "max (4M Xbox tc burst + NIC rings)",
+};
+
+function setProfileButtonActive(profile) {
+  document.querySelectorAll(".policy-btn[data-profile]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.profile === profile);
+  });
+}
 
 function syncCompetitiveFormFromPolicy(policy) {
   if (!policy) return;
   competitivePolicy = {
     bandwidth: { ...competitivePolicy.bandwidth, ...policy.bandwidth },
+    buffers: { ...competitivePolicy.buffers, ...policy.buffers },
     dns: { ...competitivePolicy.dns, ...policy.dns },
   };
   els.bwUpload.value = competitivePolicy.bandwidth.uploadMbps ?? 10;
@@ -150,12 +168,17 @@ function syncCompetitiveFormFromPolicy(policy) {
 
 function renderCompetitivePanel(profile, policy, summary, options = {}) {
   const syncForm = options.syncForm !== false;
+  const preserveLocalEdits = options.preserveLocalEdits === true;
   const show = profile === "competitive";
   els.competitivePanel.hidden = !show;
   if (!show) return;
 
   if (policy && syncForm) {
     syncCompetitiveFormFromPolicy(policy);
+    competitiveDirty = false;
+  } else if (policy && !preserveLocalEdits) {
+    syncCompetitiveFormFromPolicy(policy);
+    competitiveDirty = false;
   }
 
   const bwMode = competitivePolicy.bandwidth?.mode || "dynamic";
@@ -163,27 +186,62 @@ function renderCompetitivePanel(profile, policy, summary, options = {}) {
     btn.classList.toggle("active", btn.dataset.bwMode === bwMode);
   });
   els.bandwidthStaticFields.hidden = bwMode !== "static";
+
+  const bufMode = competitivePolicy.buffers?.mode || "large";
+  document.querySelectorAll("[data-buffer-mode]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.bufferMode === bufMode);
+  });
   els.dnsFields.hidden = !els.dnsEnabled.checked;
 
   if (summary) {
     els.bandwidthStatus.textContent = `Bandwidth: ${summary.bandwidth}`;
+    if (els.bufferStatus && summary.buffers) {
+      els.bufferStatus.textContent = `Buffers: ${summary.buffers}`;
+    }
     els.dnsStatus.textContent = `DNS: ${summary.dns}`;
+  } else if (competitiveDirty) {
+    els.bandwidthStatus.textContent = `Bandwidth: ${bwMode}${bwMode === "static" ? ` (${els.bwUpload.value}/${els.bwDownload.value} Mbps)` : ""} — click Apply competitive settings`;
+    if (els.bufferStatus) {
+      els.bufferStatus.textContent = `Buffers: ${BUFFER_LABELS[bufMode] || bufMode} — click Apply competitive settings`;
+    }
+    els.dnsStatus.textContent = `DNS: ${els.dnsEnabled.checked ? "custom (pending)" : "network default"} — click Apply competitive settings`;
   }
 }
 
 document.querySelectorAll("[data-bw-mode]").forEach((btn) => {
   btn.addEventListener("click", () => {
     competitivePolicy.bandwidth.mode = btn.dataset.bwMode;
+    competitiveDirty = true;
     renderCompetitivePanel("competitive", competitivePolicy);
   });
 });
 
-els.dnsEnabled?.addEventListener("change", () => {
-  els.dnsFields.hidden = !els.dnsEnabled.checked;
+document.querySelectorAll("[data-buffer-mode]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    competitivePolicy.buffers.mode = btn.dataset.bufferMode;
+    competitiveDirty = true;
+    renderCompetitivePanel("competitive", competitivePolicy);
+    if (activeProfile === "competitive") {
+      applyCompetitiveSettings();
+    }
+  });
 });
 
+els.dnsEnabled?.addEventListener("change", () => {
+  competitiveDirty = true;
+  els.dnsFields.hidden = !els.dnsEnabled.checked;
+  renderCompetitivePanel("competitive", competitivePolicy);
+});
+els.bwUpload?.addEventListener("input", () => { competitiveDirty = true; });
+els.bwDownload?.addEventListener("input", () => { competitiveDirty = true; });
+els.dnsPrimary?.addEventListener("input", () => { competitiveDirty = true; });
+els.dnsSecondary?.addEventListener("input", () => { competitiveDirty = true; });
+
 async function applyCompetitiveSettings() {
+  if (applyingCompetitive) return;
+  applyingCompetitive = true;
   els.applyCompetitiveBtn.disabled = true;
+  if (els.bufferStatus) els.bufferStatus.textContent = "Applying…";
   els.bandwidthStatus.textContent = "Applying…";
   try {
     const body = {
@@ -191,6 +249,9 @@ async function applyCompetitiveSettings() {
         mode: competitivePolicy.bandwidth.mode,
         uploadMbps: Number(els.bwUpload.value) || 10,
         downloadMbps: Number(els.bwDownload.value) || 50,
+      },
+      buffers: {
+        mode: competitivePolicy.buffers.mode || "large",
       },
       dns: {
         enabled: els.dnsEnabled.checked,
@@ -205,6 +266,7 @@ async function applyCompetitiveSettings() {
     });
     const payload = await res.json();
     if (!res.ok) throw new Error(payload.error || res.statusText);
+    competitiveDirty = false;
     renderCompetitivePanel(activeProfile, payload.policy, payload.summary);
     if (payload.data) {
       renderSnapshot({
@@ -217,6 +279,7 @@ async function applyCompetitiveSettings() {
   } catch (err) {
     els.bandwidthStatus.textContent = `Failed: ${err.message}`;
   } finally {
+    applyingCompetitive = false;
     els.applyCompetitiveBtn.disabled = false;
   }
 }
@@ -230,9 +293,7 @@ async function loadCompetitivePolicy() {
     if (res.ok) {
       activeProfile = body.activeProfile || activeProfile;
       els.policyStatus.textContent = `Profile: ${activeProfile}`;
-      document.querySelectorAll(".policy-btn[data-profile]").forEach((btn) => {
-        btn.classList.toggle("active", btn.dataset.profile === activeProfile);
-      });
+      setProfileButtonActive(activeProfile);
       renderCompetitivePanel(activeProfile, body.policy, body.summary);
     }
   } catch {
@@ -440,9 +501,7 @@ async function setTrafficProfile(profile) {
     if (!res.ok) throw new Error(body.error || res.statusText);
     activeProfile = profile;
     els.policyStatus.textContent = `Profile: ${profile}${body.ipCount != null ? ` (${body.ipCount} IPs shaped)` : ""}`;
-    document.querySelectorAll(".policy-btn").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.profile === profile);
-    });
+    setProfileButtonActive(profile);
     renderCompetitivePanel(profile, body.policy, body.policySummary);
     if (body.data) renderSnapshot({ data: body.data, lastError: null, trafficProfile: profile });
   } catch (err) {
@@ -690,14 +749,14 @@ function renderProcessor(processor, effectivePollMs, tuning) {
     const rawKb = ((wire.rawBytes || 0) / 1024).toFixed(1);
     const wireKb = ((wire.wireBytes || 0) / 1024).toFixed(1);
     els.procWire.textContent = `${wire.compressionRatio.toFixed(2)}× smaller`;
-    els.procWireDetail.textContent = `Snapshot SSH ${rawKb} KB → ${wireKb} KB (${wire.mode || "gzip"})`;
+    els.procWireDetail.textContent = `Snapshot API ${rawKb} KB → ${wireKb} KB (${wire.mode || "gzip"})`;
   } else if (tp.effectiveControlPlaneKbps != null && tp.physicalDownKbps != null) {
     els.procWire.textContent = `${(tp.effectiveControlPlaneKbps / Math.max(tp.physicalDownKbps, 1)).toFixed(2)}× eff.`;
     els.procWireDetail.textContent = `Control-plane effective ${tp.effectiveControlPlaneKbps.toFixed(0)} Kbps`;
   } else {
     els.procWire.textContent = wire?.mode === "plain-json" ? "Plain JSON" : "Active";
     els.procWireDetail.textContent = wire
-      ? `${wire.rawBytes || "?"} B raw over SSH`
+      ? `${wire.rawBytes || "?"} B raw over API`
       : "Gzip wire from Firewalla snapshot";
   }
 
@@ -829,6 +888,7 @@ function setError(message) {
 }
 
 function renderChart() {
+  if (!ctx || !els.chart) return;
   const w = els.chart.width;
   const h = els.chart.height;
   ctx.clearRect(0, 0, w, h);
@@ -904,10 +964,11 @@ function renderSnapshot(payload) {
   if (profile) {
     activeProfile = profile;
     els.policyStatus.textContent = `Profile: ${profile}`;
-    document.querySelectorAll(".policy-btn").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.profile === profile);
+    setProfileButtonActive(profile);
+    renderCompetitivePanel(profile, policy || competitivePolicy, pSummary, {
+      syncForm: false,
+      preserveLocalEdits: competitiveDirty,
     });
-    renderCompetitivePanel(profile, policy || competitivePolicy, pSummary, { syncForm: false });
   }
 
   const xbox = data.xbox || {};

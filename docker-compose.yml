@@ -6,20 +6,22 @@ services:
     working_dir: /app
     volumes:
       - ./:/app:ro
-      - ./deploy/ssh:/root/.ssh:ro
     environment:
       PORT: "9377"
       POLL_MS: "8000"
-      FIREWALLA_HOST: "${FIREWALLA_HOST:-A.A.A.A}"
-      FIREWALLA_USER: "${FIREWALLA_USER:-pi}"
-      FIREWALLA_SSH_KEY: /root/.ssh/firewalla-gaming-monitor
+      FIREWALLA_API_URL: "${FIREWALLA_API_URL:?set FIREWALLA_API_URL}"
+      FIREWALLA_API_TOKEN: "${FIREWALLA_API_TOKEN:?set FIREWALLA_API_TOKEN}"
       REMOTE_SCRIPT: /home/pi/gaming-tools/gaming-snapshot.sh
       REMOTE_QOS: /home/pi/gaming-tools/gaming-role-qos.sh
       REMOTE_BANDWIDTH: /home/pi/gaming-tools/gaming-bandwidth-qos.sh
+      REMOTE_BUFFER: /home/pi/gaming-tools/gaming-buffer-tune.sh
       REMOTE_DNS: /home/pi/gaming-tools/gaming-dns-policy.sh
       REMOTE_ROUTE: /home/pi/gaming-tools/gaming-route-probe.sh
       REMOTE_ENFORCE: /home/pi/gaming-tools/gaming-route-enforce.sh
-      XBOX_IP: "${XBOX_IP:-B.B.B.B}"
+      REMOTE_NAT: /home/pi/gaming-tools/gaming-nat-check.sh
+      REMOTE_MTU: /home/pi/gaming-tools/gaming-mtu-probe.sh
+      REMOTE_OFFLOAD: /home/pi/gaming-tools/gaming-offload-audit.sh
+      XBOX_IP: "${XBOX_IP:?set XBOX_IP}"
     ports:
       - "${PORT:-9377}:9377"
     command: ["node", "server.mjs"]

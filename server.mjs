@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createReadStream, existsSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -49,6 +48,7 @@ import {
   decodeProcessorWire,
   wireStatsSummary,
 } from "./lib/processor-wire.mjs";
+import { createFirewallaClient, scriptBasename } from "./lib/firewalla-client.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -58,9 +58,17 @@ const PORT = Number(process.env.PORT || 9377);
 const BASE_POLL_MS = Number(process.env.POLL_MS || 2500);
 const FIREWALLA_CORES = Number(process.env.FIREWALLA_CORES || 4);
 const ROUTE_PROBE_MS = (routeConfig.probeIntervalSec || 300) * 1000;
-const FIREWALLA_HOST = process.env.FIREWALLA_HOST || "";
-const FIREWALLA_USER = process.env.FIREWALLA_USER || "pi";
-const FIREWALLA_SSH_KEY = process.env.FIREWALLA_SSH_KEY || "";
+const FIREWALLA_API_URL = process.env.FIREWALLA_API_URL || "";
+const FIREWALLA_API_TOKEN = process.env.FIREWALLA_API_TOKEN || "";
+if (!FIREWALLA_API_URL) {
+  console.error("FIREWALLA_API_URL is required — SSH to Firewalla is disabled");
+  process.exit(1);
+}
+if (!FIREWALLA_API_TOKEN) {
+  console.error("FIREWALLA_API_TOKEN is required — set in /etc/default/xbox-traffic-monitor");
+  process.exit(1);
+}
+const firewallaClient = createFirewallaClient(FIREWALLA_API_URL, FIREWALLA_API_TOKEN);
 const REMOTE_SCRIPT =
   process.env.REMOTE_SCRIPT || "/home/pi/gaming-tools/gaming-snapshot.sh";
 const REMOTE_QOS =
@@ -73,6 +81,8 @@ const REMOTE_BANDWIDTH =
   process.env.REMOTE_BANDWIDTH || "/home/pi/gaming-tools/gaming-bandwidth-qos.sh";
 const REMOTE_DNS =
   process.env.REMOTE_DNS || "/home/pi/gaming-tools/gaming-dns-policy.sh";
+const REMOTE_BUFFER =
+  process.env.REMOTE_BUFFER || "/home/pi/gaming-tools/gaming-buffer-tune.sh";
 const REMOTE_NAT =
   process.env.REMOTE_NAT || "/home/pi/gaming-tools/gaming-nat-check.sh";
 const REMOTE_MTU =
@@ -103,6 +113,7 @@ let trafficProfile = loadTrafficProfile(getProfiles());
 let qosStatus = null;
 let bandwidthStatus = null;
 let dnsStatus = null;
+let bufferStatus = null;
 let lastQosSync = 0;
 let lastError = null;
 let polling = false;
@@ -240,16 +251,14 @@ function getLatest() {
 async function applyRouteEnforcement(routeData) {
   lastRouteEnforcement = buildEnforcement(routeData);
   if (!routeEnforcementEnabled) {
-    routeEnforceStatus = await sshRun(`sudo ${REMOTE_ENFORCE} off`);
+    routeEnforceStatus = await runRemoteScript(REMOTE_ENFORCE, ["off"], { sudo: true });
     routeEnforceError = null;
     return { enabled: false, ...lastRouteEnforcement };
   }
-  const tmp = `/tmp/xbox-route-enforce-${Date.now()}.json`;
-  const encoded = encodeRemotePayload(lastRouteEnforcement);
-  routeEnforceStatus = await sshRunWithPayload(
-    lastRouteEnforcement,
-    tmp,
-    `sudo ${REMOTE_ENFORCE} sync ${tmp}`,
+  routeEnforceStatus = await runRemoteScript(
+    REMOTE_ENFORCE,
+    ["sync", "@payload"],
+    { sudo: true, payload: lastRouteEnforcement },
   );
   routeEnforceError = null;
   lastEnforcementSync = Date.now();
@@ -265,12 +274,9 @@ async function routeProbeOnce() {
     try {
       const enriched = enrichSnapshot(rawSnapshot, trafficProfile);
       const targets = buildRouteTargets(enriched, routeConfig);
-      const tmpIn = `/tmp/xbox-route-in-${Date.now()}.json`;
-      const out = await sshRunWithPayload(
-        { targets },
-        tmpIn,
-        `bash ${REMOTE_ROUTE} ${tmpIn}`,
-      );
+      const out = await runRemoteScript(REMOTE_ROUTE, ["@payload"], {
+        payload: { targets },
+      });
       lastRouteData = JSON.parse(out);
       lastRouteProbe = Date.now();
       routeError = null;
@@ -309,7 +315,7 @@ async function networkHealthProbeOnce() {
   networkHealthPromise = (async () => {
     networkHealthProbing = true;
     try {
-      const natOut = await sshRun(`bash ${REMOTE_NAT}`);
+      const natOut = await runRemoteScript(REMOTE_NAT, []);
       const nat = JSON.parse(natOut);
       const natType = nat.natType || "unknown";
       if (previousNatType && previousNatType !== natType) {
@@ -321,15 +327,12 @@ async function networkHealthProbeOnce() {
       previousNatType = natType;
 
       const mtuInput = buildMtuTargets(enrichSnapshot(rawSnapshot, trafficProfile));
-      const tmpIn = `/tmp/xbox-mtu-in-${Date.now()}.json`;
-      const mtuOut = await sshRunWithPayload(
-        mtuInput,
-        tmpIn,
-        `bash ${REMOTE_MTU} ${tmpIn}`,
-      );
+      const mtuOut = await runRemoteScript(REMOTE_MTU, ["@payload"], {
+        payload: mtuInput,
+      });
       const mtu = JSON.parse(mtuOut);
 
-      const offloadOut = await sshRun(`bash ${REMOTE_OFFLOAD}`);
+      const offloadOut = await runRemoteScript(REMOTE_OFFLOAD, []);
       const offload = JSON.parse(offloadOut);
 
       lastNetworkHealth = {
@@ -361,9 +364,9 @@ function maybeScheduleNetworkHealth() {
 }
 
 async function sampleProcessorLoad() {
-  if (!FIREWALLA_HOST) return;
+  if (!firewallaClient) return;
   try {
-    const out = await sshRun("cat /proc/loadavg; grep -m1 MemAvailable /proc/meminfo");
+    const out = await runSystemProbe();
     const lines = out.split("\n");
     const loadRaw = lines[0] || "";
     const memLine = lines.find((l) => l.startsWith("MemAvailable:")) || "";
@@ -395,13 +398,13 @@ async function sampleProcessorLoad() {
 async function applyProcessorTune() {
   const parts = [];
   try {
-    parts.push(await sshRun(`bash ${REMOTE_PROCESSOR_TUNE} apply`));
+    parts.push(await runRemoteScript(REMOTE_PROCESSOR_TUNE, ["apply"]));
     processorTuneError = null;
   } catch (err) {
     processorTuneError = err instanceof Error ? err.message : String(err);
   }
   try {
-    parts.push(await sshRun(`bash ${REMOTE_FIREWALLA_TUNE} apply`));
+    parts.push(await runRemoteScript(REMOTE_FIREWALLA_TUNE, ["apply"]));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     processorTuneError = processorTuneError ? `${processorTuneError}; ${msg}` : msg;
@@ -418,92 +421,48 @@ function contentType(filePath) {
   return "application/octet-stream";
 }
 
-function sshArgs() {
-  const args = [
-    "-o",
-    "BatchMode=yes",
-    "-o",
-    "StrictHostKeyChecking=accept-new",
-    "-o",
-    "ConnectTimeout=8",
-  ];
-  if (FIREWALLA_SSH_KEY) args.push("-i", FIREWALLA_SSH_KEY);
-  return args;
+async function runRemoteScript(scriptPath, args = [], { sudo = false, payload = null } = {}) {
+  return firewallaClient.runScript(scriptBasename(scriptPath), args, { sudo, payload });
 }
 
-function sshRun(remoteCmd, stdin = null) {
-  return new Promise((resolve, reject) => {
-    const args = [
-      ...sshArgs(),
-      `${FIREWALLA_USER}@${FIREWALLA_HOST}`,
-      remoteCmd,
-    ];
-    const child = spawn("ssh", args, { stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (c) => {
-      stdout += c;
-    });
-    child.stderr.on("data", (c) => {
-      stderr += c;
-    });
-    child.on("close", (code) => {
-      if (code !== 0) reject(new Error(stderr.trim() || `ssh exited ${code}`));
-      else resolve(stdout.trim());
-    });
-    child.on("error", reject);
-    if (stdin) {
-      child.stdin.write(stdin);
-      child.stdin.end();
-    } else {
-      child.stdin.end();
-    }
-  });
-}
-
-async function sshRunWithPayload(data, tmpPath, followCmd) {
-  const encoded = encodeRemotePayload(data);
-  const transport =
-    encoded.payload.length > 12000 && encoded.shellWriteStdin
-      ? encoded.shellWriteStdin(tmpPath)
-      : { cmd: encoded.shellWrite(tmpPath), stdin: null };
-  const remote = transport.stdin
-    ? `cat | ${transport.cmd} && ${followCmd} && rm -f ${tmpPath}`
-    : `${transport.cmd} && ${followCmd} && rm -f ${tmpPath}`;
-  return sshRun(remote, transport.stdin);
+async function runSystemProbe() {
+  return firewallaClient.systemProbe();
 }
 
 function fetchSnapshot() {
-  return sshRun(`bash ${REMOTE_SCRIPT} ${XBOX_IP} --wire`);
+  return runRemoteScript(REMOTE_SCRIPT, [XBOX_IP, "--wire"]);
 }
 
 async function applyBandwidthPolicy(profile) {
   const policy = loadPolicy();
   if (profile !== "competitive") {
-    bandwidthStatus = await sshRun(`sudo ${REMOTE_BANDWIDTH} off`);
+    bandwidthStatus = await runRemoteScript(REMOTE_BANDWIDTH, ["off"], { sudo: true });
     return { mode: "off", status: bandwidthStatus };
   }
   if (policy.bandwidth.mode === "static") {
     const up = Number(policy.bandwidth.uploadMbps) || 10;
     const down = Number(policy.bandwidth.downloadMbps) || 50;
-    bandwidthStatus = await sshRun(`sudo ${REMOTE_BANDWIDTH} static ${up} ${down}`);
+    bandwidthStatus = await runRemoteScript(
+      REMOTE_BANDWIDTH,
+      ["static", String(up), String(down)],
+      { sudo: true },
+    );
     return { mode: "static", uploadMbps: up, downloadMbps: down, status: bandwidthStatus };
   }
-  bandwidthStatus = await sshRun(`sudo ${REMOTE_BANDWIDTH} dynamic`);
+  bandwidthStatus = await runRemoteScript(REMOTE_BANDWIDTH, ["dynamic"], { sudo: true });
   return { mode: "dynamic", status: bandwidthStatus };
 }
 
 async function applyDnsPolicy(profile) {
   const policy = loadPolicy();
   if (profile !== "competitive" || !policy.dns.enabled) {
-    dnsStatus = await sshRun(`sudo ${REMOTE_DNS} off`);
+    dnsStatus = await runRemoteScript(REMOTE_DNS, ["off"], { sudo: true });
     return { enabled: false, scope: "xbox-only", status: dnsStatus };
   }
   const primary = policy.dns.primary || "1.1.1.1";
   const secondary = policy.dns.secondary || "";
-  dnsStatus = await sshRun(
-    `sudo ${REMOTE_DNS} on ${primary}${secondary ? ` ${secondary}` : ""}`,
-  );
+  const dnsArgs = secondary ? ["on", primary, secondary] : ["on", primary];
+  dnsStatus = await runRemoteScript(REMOTE_DNS, dnsArgs, { sudo: true });
   return {
     enabled: true,
     scope: "xbox-only",
@@ -513,24 +472,35 @@ async function applyDnsPolicy(profile) {
   };
 }
 
+async function applyBufferPolicy(profile) {
+  const policy = loadPolicy();
+  if (profile !== "competitive") {
+    bufferStatus = await runRemoteScript(REMOTE_BUFFER, ["off"], { sudo: true });
+    return { mode: "off", status: bufferStatus };
+  }
+  const mode = policy.buffers?.mode || "large";
+  bufferStatus = await runRemoteScript(REMOTE_BUFFER, ["apply", mode], { sudo: true });
+  return { mode, status: bufferStatus };
+}
+
 async function applyCompetitivePolicies(profile) {
   const qos = await applyQosProfile(profile);
   const bandwidth = await applyBandwidthPolicy(profile);
+  const buffers = await applyBufferPolicy(profile);
   const dns = await applyDnsPolicy(profile);
-  return { ...qos, bandwidth, dns };
+  return { ...qos, bandwidth, buffers, dns };
 }
 
 async function applyQosProfile(profile) {
   if (profile === "balanced") {
-    qosStatus = await sshRun(`sudo ${REMOTE_QOS} off`);
+    qosStatus = await runRemoteScript(REMOTE_QOS, ["off"], { sudo: true });
     return { profile, qos: qosStatus };
   }
   const ips = ipsForQos(rawSnapshot, profile);
-  const tmp = `/tmp/xbox-qos-${Date.now()}.json`;
-  qosStatus = await sshRunWithPayload(
-    ips,
-    tmp,
-    `sudo ${REMOTE_QOS} sync ${profile} ${tmp}`,
+  qosStatus = await runRemoteScript(
+    REMOTE_QOS,
+    ["sync", profile, "@payload"],
+    { sudo: true, payload: ips },
   );
   return { profile, ipCount: ips.length, qos: qosStatus };
 }
@@ -629,7 +599,8 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/api/health") {
     sendJson(res, 200, {
       ok: true,
-      firewalla: FIREWALLA_HOST,
+      firewallaApi: FIREWALLA_API_URL,
+      transport: "api",
       xboxIp: XBOX_IP,
       trafficProfile,
       policy: loadPolicy(),
@@ -702,6 +673,7 @@ const server = http.createServer(async (req, res) => {
       defaults: getCompetitiveDefaults(),
       summary: policySummary(),
       bandwidthStatus,
+      bufferStatus,
       dnsStatus,
     });
     return;
@@ -715,6 +687,7 @@ const server = http.createServer(async (req, res) => {
       if (trafficProfile === "competitive") {
         applied = {
           bandwidth: await applyBandwidthPolicy("competitive"),
+          buffers: await applyBufferPolicy("competitive"),
           dns: await applyDnsPolicy("competitive"),
         };
         lastQosSync = Date.now();
@@ -926,10 +899,24 @@ const server = http.createServer(async (req, res) => {
     res.end("Not found");
     return;
   }
-  res.writeHead(200, { "Content-Type": contentType(abs) });
+  res.writeHead(200, {
+    "Content-Type": contentType(abs),
+    "Cache-Control": "no-store",
+  });
   createReadStream(abs).pipe(res);
 });
 
+async function verifyFirewallaApi() {
+  const health = await firewallaClient.health();
+  if (!health.ok) {
+    throw new Error("Firewalla API health check failed");
+  }
+  const bridge = health.netbotBridge?.ok ? "up" : "down";
+  console.log(`Firewalla API OK at ${FIREWALLA_API_URL} (netbot bridge ${bridge})`);
+  return health;
+}
+
+await verifyFirewallaApi();
 await pollOnce();
 if (trafficProfile !== "balanced") {
   try {
@@ -954,6 +941,6 @@ networkHealthProbeOnce().catch(() => {});
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`xbox-traffic-monitor listening on http://0.0.0.0:${PORT}`);
-  console.log(`  Firewalla: ${FIREWALLA_USER}@${FIREWALLA_HOST}`);
+  console.log(`  Firewalla API: ${FIREWALLA_API_URL}`);
   console.log(`  Xbox IP: ${XBOX_IP}`);
 });

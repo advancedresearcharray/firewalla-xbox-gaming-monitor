@@ -7,6 +7,13 @@ TOOLS_DIR="/home/pi/gaming-tools"
 CONF="${TOOLS_DIR}/gaming.conf"
 STATE="${TOOLS_DIR}/.bandwidth-qos.state"
 FILTER_TAG="xbox_bw"
+BURST="${XBOX_TC_BURST:-512k}"
+
+if [[ -f "${TOOLS_DIR}/.xbox-buffer.env" ]]; then
+  # shellcheck disable=SC1090
+  source "${TOOLS_DIR}/.xbox-buffer.env"
+  BURST="${XBOX_TC_BURST:-$BURST}"
+fi
 
 if [[ -f "$CONF" ]]; then
   # shellcheck disable=SC1090
@@ -60,7 +67,7 @@ cmd_dynamic() {
 add_police_filter() {
   local pref="$1" match_proto="$2" match_clause="$3" rate_bps="$4"
   tc filter add dev "$(dev)" parent ffff: protocol "$match_proto" pref "$pref" u32 \
-    $match_clause police rate "${rate_bps}bit" burst 512k drop
+    $match_clause police rate "${rate_bps}bit" burst "$BURST" drop
 }
 
 cmd_static() {
@@ -101,6 +108,7 @@ cmd_static() {
     echo "updated=$(date -Is)"
     echo "xbox_ip=${XBOX_IP}"
     echo "lan_if=$(dev)"
+    echo "tc_burst=${BURST}"
   } >"$STATE"
   log "STATIC — Xbox ${XBOX_IP} capped at ↑${up_mbps} ↓${down_mbps} Mbps (other LAN devices unchanged)"
 }

@@ -69,18 +69,14 @@ ssh pi@A.A.A.A
 ### 2. Install dashboard (any Linux host on LAN)
 
 ```bash
-sudo FIREWALLA_HOST=A.A.A.A XBOX_IP=B.B.B.B ./scripts/install-dashboard.sh
+sudo FIREWALLA_API_URL=http://A.A.A.A:9378 FIREWALLA_API_TOKEN=<your-token> XBOX_IP=B.B.B.B ./scripts/install-dashboard.sh
 # Open http://C.C.C.C:9377/
 ```
 
 **Docker alternative:**
 
 ```bash
-mkdir -p deploy/ssh
-cp ~/.ssh/firewalla-gaming-monitor deploy/ssh/
-cp ~/.ssh/firewalla-gaming-monitor.pub deploy/ssh/
-# Add pubkey to Firewalla pi@authorized_keys first
-FIREWALLA_HOST=A.A.A.A XBOX_IP=B.B.B.B docker compose up -d
+FIREWALLA_API_URL=http://A.A.A.A:9378 FIREWALLA_API_TOKEN=<your-token> XBOX_IP=B.B.B.B docker compose up -d
 ```
 
 Full guide: [docs/INSTALL.md](docs/INSTALL.md)
@@ -101,7 +97,7 @@ Full guide: [docs/INSTALL.md](docs/INSTALL.md)
 | `/api/snapshot` | GET | Latest enriched snapshot |
 | `/api/stream` | GET | SSE live stream |
 | `/api/traffic-policy` | POST | `{ "profile": "balanced\|competitive\|download" }` |
-| `/api/competitive-policy` | GET/POST | Bandwidth mode (dynamic/static Mbps) + Xbox-only DNS |
+| `/api/competitive-policy` | GET/POST | Bandwidth mode (dynamic/static Mbps), Xbox buffers (normal/large/max), Xbox-only DNS |
 | `/api/route-probe` | POST | Force path probe |
 | `/api/route-policy` | GET/POST | Path enforcement on/off |
 | `/api/ai-insights` | GET/POST | Local session analysis (heuristics + learning) |
@@ -127,6 +123,7 @@ This project is **separate from** [firewalla/firewalla](https://github.com/firew
 - Route enforcement adds `iptables`/`ipset` DROP rules in `FORWARD` for **Xbox source IPs only**
 - QoS uses `mangle` POSTROUTING DSCP marks; works with Firewalla CAKE `diffserv3`
 - **Competitive bandwidth:** `dynamic` (Firewalla allocates) or `static` Mbps caps on Xbox only via ingress policing
+- **Xbox buffers:** `normal` / `large` / `max` tc police burst (Xbox-only); large/max also widen NIC rings on eth0–eth2
 - **DNS:** off by default; when enabled, redirects DNS queries **only from XBOX_IP/MAC** — does not change DHCP or global Firewalla DNS (fixes laptop/other-device timeout issues)
 - Scripts are read-only on Firewalla except for explicit QoS/enforcement sync commands
 - No Firewalla OS or app modification required — files live in `/home/pi/gaming-tools/`

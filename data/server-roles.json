@@ -42,6 +42,15 @@
           "downloadMbps": 50
         }
       },
+      "buffers": {
+        "mode": "large",
+        "profiles": {
+          "normal": { "tcBurst": "512k", "note": "Default Xbox police burst only" },
+          "large": { "tcBurst": "2m", "note": "2M Xbox burst + 75% NIC rings (recommended)" },
+          "max": { "tcBurst": "4m", "note": "4M Xbox burst + max NIC rings + larger kernel backlog" }
+        },
+        "scope": "xbox-tc-burst is Xbox-only; NIC ring boost helps the whole LAN bridge path"
+      },
       "dns": {
         "enabled": false,
         "scope": "xbox-only",

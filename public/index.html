@@ -166,6 +166,15 @@
           </div>
           <p class="policy-status" id="bandwidth-status">Bandwidth: dynamic</p>
 
+          <h3 class="route-subhead">Xbox buffers</h3>
+          <p class="section-note">Larger tc police bursts for Xbox traffic only. Large/Max also widen NIC RX/TX rings on the gaming path (helps UDP bursts).</p>
+          <div class="policy-buttons" id="buffer-mode-buttons">
+            <button type="button" class="policy-btn" data-buffer-mode="normal">Normal</button>
+            <button type="button" class="policy-btn" data-buffer-mode="large">Large</button>
+            <button type="button" class="policy-btn" data-buffer-mode="max">Max</button>
+          </div>
+          <p class="policy-status" id="buffer-status">Buffers: large (2M Xbox burst)</p>
+
           <h3 class="route-subhead">Xbox-only DNS</h3>
           <p class="section-note warn-note">Off by default. When enabled, only the Xbox uses custom DNS — laptops and phones keep your normal network DNS. Never changes DHCP or global Firewalla DNS.</p>
           <label class="toggle-row">
