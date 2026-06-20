@@ -19,7 +19,9 @@ if [[ -z "$TARGET_IP" ]]; then
   exit 2
 fi
 
-exec python3 - "$TARGET_IP" "$LAN" "$UPLOAD_IF" "$DOWNLOAD_IF" "${XBOX_NAME:-Xbox}" "${XBOX_MAC:-}" "$TOOLS_DIR" "${WAN_PROBE_HOST:-one.one.one.one}" "${2:-}" <<'PY'
+shift || true
+
+exec python3 - "$TARGET_IP" "$LAN" "$UPLOAD_IF" "$DOWNLOAD_IF" "${XBOX_NAME:-Xbox}" "${XBOX_MAC:-}" "$TOOLS_DIR" "${WAN_PROBE_HOST:-one.one.one.one}" "$@" <<'PY'
 import json
 import ipaddress
 import re
@@ -29,8 +31,105 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 target_ip, lan, upload_if, download_if, xbox_name, xbox_mac, tools_dir, wan_probe_host = sys.argv[1:9]
-wire_mode = (sys.argv[9] if len(sys.argv) > 9 else "") == "--wire"
+extra_args = sys.argv[9:]
+wire_mode = "--wire" in extra_args
+minimal_mode = "--minimal" in extra_args
+critical_mode = "--critical" in extra_args
 xbox_mac = (xbox_mac or "").upper().replace("-", ":")
+
+
+def read_mem_available_mb():
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) // 1024
+    except OSError:
+        return None
+
+
+mem_available_mb = read_mem_available_mb()
+if critical_mode:
+    pressure_mode = "critical"
+elif minimal_mode:
+    pressure_mode = "minimal"
+else:
+    pressure_mode = "normal"
+
+if pressure_mode == "normal" and mem_available_mb is not None:
+    if mem_available_mb < 400:
+        pressure_mode = "critical"
+    elif mem_available_mb < 512:
+        pressure_mode = "minimal"
+
+LIMITS = {
+    "normal": {
+        "conn": 40,
+        "dest": 50,
+        "flows": 20,
+        "top": 15,
+        "ping": 999,
+        "tcpdump": True,
+        "conntrack": True,
+        "redis_flows": 19,
+    },
+    "minimal": {
+        "conn": 8,
+        "dest": 12,
+        "flows": 5,
+        "top": 5,
+        "ping": 4,
+        "tcpdump": False,
+        "conntrack": True,
+        "redis_flows": 5,
+    },
+    "critical": {
+        "conn": 8,
+        "dest": 8,
+        "flows": 0,
+        "top": 0,
+        "ping": 0,
+        "tcpdump": False,
+        "conntrack": False,
+        "redis_flows": 0,
+    },
+}
+lim = LIMITS[pressure_mode]
+
+
+def trim_conn(c):
+    return {
+        "proto": c.get("proto"),
+        "state": c.get("state"),
+        "local": c.get("local"),
+        "remote": c.get("remote"),
+        "direction": c.get("direction"),
+        "hostname": c.get("hostname"),
+        "label": c.get("label"),
+        "ip": c.get("ip"),
+        "port": c.get("port"),
+        "scope": c.get("scope"),
+        "latencyMs": c.get("latencyMs"),
+    }
+
+
+def fold_conn_row(c):
+    return [
+        c.get("ip") or "",
+        c.get("label") or c.get("hostname") or "",
+        c.get("proto") or "",
+        c.get("state") or "",
+        c.get("latencyMs"),
+    ]
+
+
+def fold_dest_row(d):
+    return [
+        d.get("ip") or "",
+        d.get("label") or "",
+        d.get("kind") or "",
+        d.get("latencyMs"),
+    ]
 
 def run(cmd, timeout=5):
     try:
@@ -268,49 +367,50 @@ for addr in target_addrs:
         connections.append(parsed)
 
 grep_re = "|".join(re.escape(addr) for addr in target_addrs)
-ct_out = run(["bash", "-lc", f"sudo conntrack -L 2>/dev/null | grep -E '{grep_re}'"], timeout=10)
-for line in ct_out.splitlines():
-    if not any(addr in line for addr in target_addrs):
-        continue
-    parts = line.split()
-    if not parts or parts[0] in ("icmp", "unknown"):
-        continue
-    proto = parts[0]
-    state = parts[3] if len(parts) > 3 else ""
-    fields = {}
-    for token in parts[4:]:
-        if "=" in token:
-            k, v = token.split("=", 1)
-            fields[k] = v
-    src = fields.get("src", "")
-    dst = fields.get("dst", "")
-    sport = fields.get("sport", "")
-    dport = fields.get("dport", "")
-    if addr_match(src, target_addrs):
-        remote = f"{dst}:{dport}"
-        direction = "out"
-        local = f"{src}:{sport}"
-    elif addr_match(dst, target_addrs):
-        remote = f"{src}:{sport}"
-        direction = "in"
-        local = f"{dst}:{dport}"
-    else:
-        continue
-    dedupe = (proto, local, remote, state)
-    if dedupe in seen:
-        continue
-    seen.add(dedupe)
-    info = enrich_remote(remote)
-    connections.append({
-        "proto": proto,
-        "state": state,
-        "local": local,
-        "remote": remote,
-        "direction": direction,
-        "host": info["hostname"],
-        "service": "",
-        **info,
-    })
+if lim["conntrack"]:
+    ct_out = run(["bash", "-lc", f"sudo conntrack -L 2>/dev/null | grep -E '{grep_re}'"], timeout=10)
+    for line in ct_out.splitlines():
+        if not any(addr in line for addr in target_addrs):
+            continue
+        parts = line.split()
+        if not parts or parts[0] in ("icmp", "unknown"):
+            continue
+        proto = parts[0]
+        state = parts[3] if len(parts) > 3 else ""
+        fields = {}
+        for token in parts[4:]:
+            if "=" in token:
+                k, v = token.split("=", 1)
+                fields[k] = v
+        src = fields.get("src", "")
+        dst = fields.get("dst", "")
+        sport = fields.get("sport", "")
+        dport = fields.get("dport", "")
+        if addr_match(src, target_addrs):
+            remote = f"{dst}:{dport}"
+            direction = "out"
+            local = f"{src}:{sport}"
+        elif addr_match(dst, target_addrs):
+            remote = f"{src}:{sport}"
+            direction = "in"
+            local = f"{dst}:{dport}"
+        else:
+            continue
+        dedupe = (proto, local, remote, state)
+        if dedupe in seen:
+            continue
+        seen.add(dedupe)
+        info = enrich_remote(remote)
+        connections.append({
+            "proto": proto,
+            "state": state,
+            "local": local,
+            "remote": remote,
+            "direction": direction,
+            "host": info["hostname"],
+            "service": "",
+            **info,
+        })
 
 dns_destinations = []
 dns_by_host = {}
@@ -342,32 +442,33 @@ if xbox_mac:
     dns_destinations = list(dns_by_host.values())
 
 recent_flows = []
-for addr in target_addrs:
-    for direction, zkey in (("out", f"flow:conn:out:{addr}"), ("in", f"flow:conn:in:{addr}")):
-        rows = run(["redis-cli", "zrevrange", zkey, "0", "19"], timeout=4)
-        for row in rows.splitlines():
-            if not row.strip():
-                continue
-            try:
-                flow = json.loads(row)
-            except json.JSONDecodeError:
-                continue
-            remote = flow.get("sh") or flow.get("dh") or flow.get("lh") or "?"
-            if addr_match(str(remote), target_addrs):
-                remote = flow.get("dh") or flow.get("sh") or "?"
-            info = enrich_remote(str(remote))
-            recent_flows.append({
-                "direction": direction,
-                "remote": str(remote),
-                "upload": flow.get("ob", 0),
-                "download": flow.get("rb", 0),
-                "duration": flow.get("du", 0),
-                "timestamp": flow.get("_ts", 0),
-                "hostname": info["hostname"],
-                "label": info["label"],
-                "ip": info["ip"],
-                "scope": info["scope"],
-            })
+if lim["redis_flows"] > 0:
+    for addr in target_addrs:
+        for direction, zkey in (("out", f"flow:conn:out:{addr}"), ("in", f"flow:conn:in:{addr}")):
+            rows = run(["redis-cli", "zrevrange", zkey, "0", str(lim["redis_flows"])], timeout=4)
+            for row in rows.splitlines():
+                if not row.strip():
+                    continue
+                try:
+                    flow = json.loads(row)
+                except json.JSONDecodeError:
+                    continue
+                remote = flow.get("sh") or flow.get("dh") or flow.get("lh") or "?"
+                if addr_match(str(remote), target_addrs):
+                    remote = flow.get("dh") or flow.get("sh") or "?"
+                info = enrich_remote(str(remote))
+                recent_flows.append({
+                    "direction": direction,
+                    "remote": str(remote),
+                    "upload": flow.get("ob", 0),
+                    "download": flow.get("rb", 0),
+                    "duration": flow.get("du", 0),
+                    "timestamp": flow.get("_ts", 0),
+                    "hostname": info["hostname"],
+                    "label": info["label"],
+                    "ip": info["ip"],
+                    "scope": info["scope"],
+                })
 
 connections.sort(key=lambda c: (0 if c.get("state") == "ESTABLISHED" else 1, c.get("scope") != "wan", c.get("label", "")))
 
@@ -432,7 +533,7 @@ sample_in = 0
 sample_out = 0
 flow_map = {}
 
-if online:
+if online and lim["tcpdump"]:
     host_filter = " or ".join(f"host {addr}" for addr in target_addrs)
     tcpdump_cmd = ["sudo", "-n", "tcpdump", "-ni", lan, "-q", "-c", "250", host_filter]
     try:
@@ -484,21 +585,23 @@ top_flows = sorted(
 )[:15]
 
 ping_targets = []
-for conn in connections:
-    if conn.get("scope") == "wan" and conn.get("ip"):
-        ping_targets.append(conn["ip"])
-for item in top_flows:
-    if item.get("scope") == "wan" and item.get("ip"):
-        ping_targets.append(item["ip"])
-for dest in destinations:
-    if dest.get("kind") == "active" and dest.get("ip"):
-        ping_targets.append(dest["ip"])
-    elif dest.get("kind") == "dns":
-        ips = dest.get("ips") or ([dest["ip"]] if dest.get("ip") else [])
-        if ips:
-            ping_targets.append(ips[0])
+if lim["ping"] > 0:
+    for conn in connections:
+        if conn.get("scope") == "wan" and conn.get("ip"):
+            ping_targets.append(conn["ip"])
+    for item in top_flows:
+        if item.get("scope") == "wan" and item.get("ip"):
+            ping_targets.append(item["ip"])
+    for dest in destinations:
+        if dest.get("kind") == "active" and dest.get("ip"):
+            ping_targets.append(dest["ip"])
+        elif dest.get("kind") == "dns":
+            ips = dest.get("ips") or ([dest["ip"]] if dest.get("ip") else [])
+            if ips:
+                ping_targets.append(ips[0])
+    ping_targets = list(dict.fromkeys(ping_targets))[: lim["ping"]]
 
-latency_map = measure_latencies(ping_targets)
+latency_map = measure_latencies(ping_targets) if ping_targets else {}
 for conn in connections:
     attach_latency(conn, latency_map)
 for dest in destinations:
@@ -601,8 +704,22 @@ if wan_probe_host:
             except (IndexError, ValueError):
                 pass
 
+conn_slice = connections[: lim["conn"]]
+dest_slice = destinations[: lim["dest"]]
+conn_items = [trim_conn(c) for c in conn_slice] if pressure_mode != "normal" else conn_slice[: lim["conn"]]
+
 payload = {
     "timestamp": now,
+    "preabstract": {
+        "mode": pressure_mode,
+        "memAvailableMb": mem_available_mb,
+        "folded": pressure_mode != "normal",
+        "wire": (
+            "fld1"
+            if pressure_mode == "critical" and wire_mode
+            else ("gz1" if wire_mode else "json")
+        ),
+    },
     "xbox": {
         "name": xbox_name,
         "ip": target_ip,
@@ -613,21 +730,21 @@ payload = {
         "arpState": arp_state,
     },
     "sample": {
-        "windowSec": 3,
+        "windowSec": 3 if lim["tcpdump"] else 0,
         "packets": sample_packets,
         "bytes": sample_bytes,
         "bytesIn": sample_in,
         "bytesOut": sample_out,
-        "stack": "ipv4+ipv6",
+        "stack": "ipv4+ipv6" if lim["tcpdump"] else "skipped",
     },
     "connections": {
         "count": len(connections),
-        "items": connections[:40],
-        "source": "redis+conntrack",
+        "items": conn_items,
+        "source": "redis+conntrack" if lim["conntrack"] else "redis",
     },
-    "recentFlows": recent_flows[:20],
-    "destinations": destinations[:50],
-    "topFlows": top_flows,
+    "recentFlows": recent_flows[: lim["flows"]],
+    "destinations": dest_slice if pressure_mode == "normal" else [],
+    "topFlows": top_flows[: lim["top"]],
     "sqm": {
         "uploadQdisc": cake_upload,
         "downloadQdisc": cake_download,
@@ -639,13 +756,20 @@ payload = {
     },
 }
 
+if pressure_mode != "normal":
+    payload["connections"]["folded"] = [fold_conn_row(c) for c in conn_slice]
+    payload["destinationsFolded"] = [fold_dest_row(d) for d in dest_slice]
+
 text = json.dumps(payload, separators=(",", ":"))
 if wire_mode:
     import base64
     import gzip
 
-    blob = gzip.compress(text.encode("utf-8"), compresslevel=6)
-    print("GZ1:" + base64.b64encode(blob).decode("ascii"))
+    if pressure_mode == "critical":
+        print("FLD1:" + text)
+    else:
+        blob = gzip.compress(text.encode("utf-8"), compresslevel=6)
+        print("GZ1:" + base64.b64encode(blob).decode("ascii"))
 else:
     print(text)
 PY

@@ -724,6 +724,21 @@ function renderProcessor(processor, effectivePollMs, tuning) {
   if (processor.deferHeavyProbes) {
     els.procDefer.textContent += " · heavy probes deferred";
   }
+  if (processor.snapshotMode && processor.snapshotMode !== "normal") {
+    els.procDefer.textContent += ` · snapshot ${processor.snapshotMode}`;
+  } else if (processor.memoryPressure && processor.memoryPressure !== "ok" && processor.memoryPressure !== "unknown") {
+    els.procDefer.textContent += ` · memory ${processor.memoryPressure}`;
+  }
+
+  const preabstract = processor.preabstract || null;
+  if (preabstract?.mode && preabstract.mode !== "normal") {
+    els.procWireDetail.textContent = [
+      els.procWireDetail.textContent,
+      `On-box preabstract: ${preabstract.mode}${preabstract.memAvailableMb != null ? ` (${preabstract.memAvailableMb} MB free)` : ""}`,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
 
   const folding = processor.folding;
   if (folding) {

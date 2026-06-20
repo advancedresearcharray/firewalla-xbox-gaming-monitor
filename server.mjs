@@ -49,6 +49,10 @@ import {
   wireStatsSummary,
 } from "./lib/processor-wire.mjs";
 import { createFirewallaClient, scriptBasename } from "./lib/firewalla-client.mjs";
+import {
+  memoryPressureTier,
+  snapshotArgsForPressure,
+} from "./lib/memory-pressure.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -430,7 +434,11 @@ async function runSystemProbe() {
 }
 
 function fetchSnapshot() {
-  return runRemoteScript(REMOTE_SCRIPT, [XBOX_IP, "--wire"]);
+  const tier =
+    processorTelemetry?.memoryPressure ??
+    memoryPressureTier(processorTelemetry?.memAvailableMb);
+  const args = snapshotArgsForPressure(tier, XBOX_IP);
+  return runRemoteScript(REMOTE_SCRIPT, args);
 }
 
 async function applyBandwidthPolicy(profile) {
@@ -509,7 +517,7 @@ async function pollOnce() {
   if (polling) return;
   polling = true;
   try {
-    if (Date.now() - lastProcessorSample > 30000) {
+    if (Date.now() - lastProcessorSample > 15000) {
       await sampleProcessorLoad();
     }
     const out = await fetchSnapshot();
@@ -522,6 +530,12 @@ async function pollOnce() {
     lastProcessorWire = createProcessorWire(rawSnapshot, lastRouteData);
     lastError = null;
     if (processorTelemetry) {
+      if (rawSnapshot?.preabstract) {
+        processorTelemetry = {
+          ...processorTelemetry,
+          preabstract: rawSnapshot.preabstract,
+        };
+      }
       processorTelemetry = buildProcessorTelemetry({
         loadRaw: processorTelemetry.load?.raw || "",
         memAvailableMb: processorTelemetry.memAvailableMb,
