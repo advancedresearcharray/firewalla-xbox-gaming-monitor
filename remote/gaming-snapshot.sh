@@ -24,6 +24,7 @@ shift || true
 exec python3 - "$TARGET_IP" "$LAN" "$UPLOAD_IF" "$DOWNLOAD_IF" "${XBOX_NAME:-Xbox}" "${XBOX_MAC:-}" "$TOOLS_DIR" "${WAN_PROBE_HOST:-one.one.one.one}" "$@" <<'PY'
 import json
 import ipaddress
+import os
 import re
 import subprocess
 import sys
@@ -95,6 +96,111 @@ LIMITS = {
     },
 }
 lim = LIMITS[pressure_mode]
+
+NETBOT_URL = os.environ.get("NETBOT_BRIDGE_URL", "http://127.0.0.1:8836")
+
+
+def netbot_invoke(mtype, data, target=None):
+    body = {"mtype": mtype, "data": data or {}}
+    if target:
+        body["target"] = target
+    out = run(
+        [
+            "curl",
+            "-sS",
+            "-m",
+            "20",
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            json.dumps(body),
+            f"{NETBOT_URL.rstrip('/')}/invoke",
+        ],
+        timeout=25,
+    )
+    if not out:
+        return None
+    try:
+        payload = json.loads(out)
+    except json.JSONDecodeError:
+        return None
+    if not payload.get("ok"):
+        return None
+    result = payload.get("result") or {}
+    if result.get("code", 500) >= 400:
+        return None
+    return result.get("data")
+
+
+def netbot_hosts():
+    data = netbot_invoke("get", {"item": "hosts"})
+    if not data:
+        return []
+    hosts = data.get("hosts", [])
+    if isinstance(hosts, dict):
+        return list(hosts.values())
+    return hosts if isinstance(hosts, list) else []
+
+
+def resolve_host_record(ip, mac):
+    want_mac = (mac or "").upper()
+    for host in netbot_hosts():
+        if host.get("ip") == ip:
+            return host
+        if want_mac and (host.get("mac") or "").upper() == want_mac:
+            return host
+    return None
+
+
+def netbot_flows(host_mac, count, direction=None):
+    if not host_mac or count <= 0:
+        return []
+    value = {"count": count, "apiVer": 3}
+    if direction:
+        value["direction"] = direction
+    data = netbot_invoke("get", {"item": "flows", "value": value}, target=host_mac)
+    if not data:
+        return []
+    flows = data.get("flows", [])
+    if isinstance(flows, dict):
+        return flows.get("recent", []) or []
+    return flows if isinstance(flows, list) else []
+
+
+def map_netbot_flow(flow):
+    ip = flow.get("ip") or ""
+    port = flow.get("port") or ""
+    remote = f"{ip}:{port}" if port else ip
+    fd = flow.get("fd") or "out"
+    direction = "out" if fd == "out" else "in" if fd == "in" else fd
+    hostname = flow.get("host") or ""
+    info = enrich_remote(remote, hostname)
+    return {
+        "direction": direction,
+        "remote": remote,
+        "upload": flow.get("upload", flow.get("ob", 0)),
+        "download": flow.get("download", flow.get("rb", 0)),
+        "duration": flow.get("duration", flow.get("du", 0)),
+        "timestamp": flow.get("ts", flow.get("_ts", 0)),
+        "category": flow.get("category", ""),
+        **info,
+    }
+
+
+def trim_host_profile(host):
+    if not host:
+        return None
+    return {
+        "ip": host.get("ip"),
+        "mac": host.get("mac"),
+        "bname": host.get("bname"),
+        "names": host.get("names") or [],
+        "macVendor": host.get("macVendor"),
+        "lastActive": host.get("lastActive"),
+        "detect": host.get("detect"),
+    }
 
 
 def trim_conn(c):
@@ -331,7 +437,21 @@ if target_ipv6:
     target_addrs.append(target_ipv6)
 
 now = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+netbot_host = resolve_host_record(target_ip, xbox_mac)
+if netbot_host and not xbox_mac:
+    xbox_mac = (netbot_host.get("mac") or "").upper()
+if netbot_host and netbot_host.get("ip") and netbot_host.get("ip") != target_ip:
+    target_ip = netbot_host.get("ip")
+    target_addrs = [target_ip]
+    if target_ipv6:
+        target_addrs.append(target_ipv6)
+
 online = ping_ok(target_ip) or bool(target_ipv6)
+if netbot_host and netbot_host.get("lastActive"):
+    try:
+        online = online or (float(netbot_host["lastActive"]) > (datetime.now().timestamp() - 120))
+    except (TypeError, ValueError):
+        pass
 
 arp_line = run(["ip", "neigh", "show", target_ip, "dev", lan])
 arp_parts = arp_line.split()
@@ -442,7 +562,18 @@ if xbox_mac:
     dns_destinations = list(dns_by_host.values())
 
 recent_flows = []
-if lim["redis_flows"] > 0:
+flow_source = "none"
+host_mac = (netbot_host or {}).get("mac") or xbox_mac
+if lim["redis_flows"] > 0 and host_mac:
+    for direction in ("out", "in"):
+        per_dir = max(1, lim["redis_flows"] // 2)
+        for flow in netbot_flows(host_mac, per_dir, direction=direction):
+            recent_flows.append(map_netbot_flow(flow))
+    if recent_flows:
+        flow_source = "netbot"
+
+if lim["redis_flows"] > 0 and not recent_flows:
+    flow_source = "redis"
     for addr in target_addrs:
         for direction, zkey in (("out", f"flow:conn:out:{addr}"), ("in", f"flow:conn:in:{addr}")):
             rows = run(["redis-cli", "zrevrange", zkey, "0", str(lim["redis_flows"])], timeout=4)
@@ -634,8 +765,8 @@ def redis_hget(key, field):
     return out.strip() if out else ""
 
 
-def detect_gaming_mode(mac):
-    """Read Firewalla device QoS policies (e.g. 569/570) scoped to Xbox MAC."""
+def detect_gaming_mode(mac, policies_data=None):
+    """Read Firewalla device QoS policies via netbot (official PolicyManager2 path)."""
     import os
 
     legacy = f"{tools_dir}/.gaming-mode.state"
@@ -646,11 +777,53 @@ def detect_gaming_mode(mac):
     if not norm_mac:
         return "unknown", "no-mac-configured"
 
-    policy_keys = run(["redis-cli", "--scan", "--pattern", "policy:*"], timeout=12).splitlines()
+    policies = []
+    if isinstance(policies_data, dict):
+        policies = policies_data.get("policies") or []
+
     upload_qos = False
     download_qos = False
     pids = []
+    for policy in policies:
+        if str(policy.get("action", "")).lower() != "qos":
+            continue
+        if str(policy.get("disabled", "0")) not in ("0", ""):
+            continue
+        notes = policy.get("notes") or ""
+        if notes.startswith("xbox-monitor:bandwidth:"):
+            continue
+        scope = policy.get("scope") or []
+        if norm_mac not in {normalize_mac(s) for s in scope}:
+            continue
+        pid = policy.get("pid")
+        if pid is not None:
+            pids.append(str(pid))
+        direction = policy.get("trafficDirection") or ""
+        if direction == "upload":
+            upload_qos = True
+        elif direction == "download":
+            download_qos = True
 
+    if upload_qos and download_qos:
+        return "on", f"firewalla-qos {','.join(sorted(set(pids)))}"
+    if upload_qos or download_qos:
+        return "partial", f"firewalla-qos-one-way {','.join(sorted(set(pids)))}"
+
+    if policies_data is not None:
+        traffic_state = f"{tools_dir}/.traffic-profile.state"
+        if os.path.isfile(traffic_state):
+            try:
+                with open(traffic_state, encoding="utf-8") as f:
+                    for line in f:
+                        if line.startswith("profile="):
+                            profile = line.split("=", 1)[1].strip()
+                            if profile and profile != "balanced":
+                                return "on", f"companion-{profile}"
+            except OSError:
+                pass
+        return "off", "firewalla-qos-inactive"
+
+    policy_keys = run(["redis-cli", "--scan", "--pattern", "policy:*"], timeout=12).splitlines()
     for key in policy_keys:
         if not key.startswith("policy:"):
             continue
@@ -664,6 +837,9 @@ def detect_gaming_mode(mac):
             continue
         scope = redis_hget(key, "scope")
         if norm_mac not in scope.upper():
+            continue
+        notes = redis_hget(key, "notes")
+        if notes.startswith("xbox-monitor:bandwidth:"):
             continue
         direction = redis_hget(key, "trafficDirection")
         pids.append(pid)
@@ -692,7 +868,9 @@ def detect_gaming_mode(mac):
     return "off", "firewalla-qos-inactive"
 
 
-gaming_mode, gaming_mode_detail = detect_gaming_mode(xbox_mac)
+_qos_policies_data = netbot_invoke("get", {"item": "policies"})
+gaming_mode, gaming_mode_detail = detect_gaming_mode(xbox_mac, _qos_policies_data)
+qos_via_netbot = _qos_policies_data is not None
 
 wan_latency_ms = None
 if wan_probe_host:
@@ -721,13 +899,14 @@ payload = {
         ),
     },
     "xbox": {
-        "name": xbox_name,
+        "name": (netbot_host or {}).get("bname") or xbox_name,
         "ip": target_ip,
         "ipv6": target_ipv6,
         "mac": xbox_mac,
         "online": online,
         "arpMac": arp_mac,
         "arpState": arp_state,
+        "netbot": trim_host_profile(netbot_host),
     },
     "sample": {
         "windowSec": 3 if lim["tcpdump"] else 0,
@@ -743,6 +922,7 @@ payload = {
         "source": "redis+conntrack" if lim["conntrack"] else "redis",
     },
     "recentFlows": recent_flows[: lim["flows"]],
+    "flowSource": flow_source,
     "destinations": dest_slice if pressure_mode == "normal" else [],
     "topFlows": top_flows[: lim["top"]],
     "sqm": {
@@ -750,6 +930,7 @@ payload = {
         "downloadQdisc": cake_download,
         "gamingMode": gaming_mode,
         "gamingModeDetail": gaming_mode_detail,
+        "qosSource": "netbot" if qos_via_netbot else "redis",
     },
     "wan": {
         "latencyMs": wan_latency_ms,

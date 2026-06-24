@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Xbox-only bandwidth caps (static) or release to Firewalla CAKE/device QoS (dynamic).
-# Uses ingress policing on LAN_IF only — does not replace CAKE/ifb shaping.
+# Dashboard prefers official netbot policy:create (ifb HTB) via lib/qos-netbot.mjs.
+# This script remains fallback for ingress tc police when USE_NETBOT_QOS=0 or netbot errors.
 set -euo pipefail
 
 TOOLS_DIR="/home/pi/gaming-tools"

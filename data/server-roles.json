@@ -36,10 +36,10 @@
         "low": "low"
       },
       "bandwidth": {
-        "mode": "dynamic",
+        "mode": "static",
         "static": {
-          "uploadMbps": 10,
-          "downloadMbps": 50
+          "uploadMbps": 500,
+          "downloadMbps": 500
         }
       },
       "buffers": {

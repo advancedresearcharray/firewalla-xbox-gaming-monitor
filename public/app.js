@@ -8,6 +8,8 @@ const els = {
   errorBanner: document.getElementById("error-banner"),
   metricDown: document.getElementById("metric-down"),
   metricUp: document.getElementById("metric-up"),
+  metricDownDetail: document.getElementById("metric-down-detail"),
+  metricUpDetail: document.getElementById("metric-up-detail"),
   metricPkts: document.getElementById("metric-pkts"),
   metricConns: document.getElementById("metric-conns"),
   metricLatency: document.getElementById("metric-latency"),
@@ -76,6 +78,37 @@ const els = {
   recentBody: document.getElementById("recent-body"),
   footer: document.getElementById("footer"),
   chart: document.getElementById("chart"),
+  chartYMax: document.getElementById("chart-y-max"),
+  tpNowDown: document.getElementById("tp-now-down"),
+  tpNowUp: document.getElementById("tp-now-up"),
+  tpPeakDown: document.getElementById("tp-peak-down"),
+  tpPeakUp: document.getElementById("tp-peak-up"),
+  tpTotalDown: document.getElementById("tp-total-down"),
+  tpTotalUp: document.getElementById("tp-total-up"),
+  tpWindow: document.getElementById("tp-window"),
+  throughputNote: document.getElementById("throughput-note"),
+  mocaPathNote: document.getElementById("moca-path-note"),
+  mocaDev1Label: document.getElementById("moca-dev1-label"),
+  mocaDev1Status: document.getElementById("moca-dev1-status"),
+  mocaDev1Detail: document.getElementById("moca-dev1-detail"),
+  mocaDev2Label: document.getElementById("moca-dev2-label"),
+  mocaDev2Status: document.getElementById("moca-dev2-status"),
+  mocaDev2Detail: document.getElementById("moca-dev2-detail"),
+  mocaXboxStatus: document.getElementById("moca-xbox-status"),
+  mocaXboxDetail: document.getElementById("moca-xbox-detail"),
+  securityStatus: document.getElementById("security-status"),
+  secSeverity: document.getElementById("sec-severity"),
+  secSeverityDetail: document.getElementById("sec-severity-detail"),
+  secGuard: document.getElementById("sec-guard"),
+  secGuardDetail: document.getElementById("sec-guard-detail"),
+  secThroughput: document.getElementById("sec-throughput"),
+  secBaseline: document.getElementById("sec-baseline"),
+  secConns: document.getElementById("sec-conns"),
+  secCap: document.getElementById("sec-cap"),
+  secAlerts: document.getElementById("sec-alerts"),
+  secEventsBody: document.getElementById("sec-events-body"),
+  securityDefendBtn: document.getElementById("security-defend-btn"),
+  securityRelaxBtn: document.getElementById("security-relax-btn"),
 };
 
 const ctx = els.chart?.getContext("2d") ?? null;
@@ -132,7 +165,7 @@ function formatRole(item) {
 
 let activeProfile = "balanced";
 let competitivePolicy = {
-  bandwidth: { mode: "dynamic", uploadMbps: 10, downloadMbps: 50 },
+  bandwidth: { mode: "static", uploadMbps: 500, downloadMbps: 500 },
   buffers: { mode: "large" },
   dns: { enabled: false, primary: "1.1.1.1", secondary: "1.0.0.1" },
 };
@@ -159,8 +192,8 @@ function syncCompetitiveFormFromPolicy(policy) {
     buffers: { ...competitivePolicy.buffers, ...policy.buffers },
     dns: { ...competitivePolicy.dns, ...policy.dns },
   };
-  els.bwUpload.value = competitivePolicy.bandwidth.uploadMbps ?? 10;
-  els.bwDownload.value = competitivePolicy.bandwidth.downloadMbps ?? 50;
+  els.bwUpload.value = competitivePolicy.bandwidth.uploadMbps ?? 500;
+  els.bwDownload.value = competitivePolicy.bandwidth.downloadMbps ?? 500;
   els.dnsEnabled.checked = Boolean(competitivePolicy.dns.enabled);
   els.dnsPrimary.value = competitivePolicy.dns.primary || "1.1.1.1";
   els.dnsSecondary.value = competitivePolicy.dns.secondary || "1.0.0.1";
@@ -247,8 +280,8 @@ async function applyCompetitiveSettings() {
     const body = {
       bandwidth: {
         mode: competitivePolicy.bandwidth.mode,
-        uploadMbps: Number(els.bwUpload.value) || 10,
-        downloadMbps: Number(els.bwDownload.value) || 50,
+        uploadMbps: Number(els.bwUpload.value) || 500,
+        downloadMbps: Number(els.bwDownload.value) || 500,
       },
       buffers: {
         mode: competitivePolicy.buffers.mode || "large",
@@ -554,6 +587,113 @@ async function probeRoutes() {
 }
 
 els.routeProbeBtn?.addEventListener("click", probeRoutes);
+
+function severityClass(severity) {
+  if (severity === "critical") return "sec-critical";
+  if (severity === "high") return "sec-high";
+  if (severity === "warn") return "sec-warn";
+  return "sec-ok";
+}
+
+function formatSecTime(ts) {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleTimeString();
+}
+
+function renderSecurityTelemetry(telemetry, floodGuard) {
+  const sec = telemetry || {};
+  const guard = floodGuard || {};
+  const metrics = sec.metrics;
+  const baseline = sec.baseline;
+  const cap = sec.bandwidthCapMbps || { upload: 500, download: 500 };
+
+  if (!metrics && sec.status === "waiting") {
+    els.securityStatus.textContent = "Building baseline — need a few poll cycles with Xbox online.";
+    return;
+  }
+
+  const severity = sec.severity || sec.status || "ok";
+  const sevLabel = severity === "ok" ? "NORMAL" : severity.toUpperCase();
+  els.secSeverity.innerHTML = `<span class="${severityClass(severity)}">${sevLabel}</span>`;
+  els.secSeverityDetail.textContent =
+    sec.score != null ? `Score ${sec.score} — ${metrics?.xboxOnline ? "Xbox online" : "Xbox offline"}` : "Monitoring inbound patterns";
+
+  const guardOn = guard.active || sec.guardActive;
+  els.secGuard.innerHTML = guardOn
+    ? '<span class="sec-high">ACTIVE</span>'
+    : '<span class="sec-ok">OFF</span>';
+  els.secGuardDetail.textContent = guardOn
+    ? "Per-source flood limits on Firewalla — Xbox Live ports whitelisted"
+    : "Auto-activates on inbound flood / boot patterns";
+  if (guard.error) {
+    els.secGuardDetail.textContent = `Guard error: ${guard.error}`;
+  }
+
+  if (metrics) {
+    els.secThroughput.textContent = `${metrics.inboundMbps} ↓ / ${metrics.outboundMbps} ↑ Mbps`;
+    if (baseline) {
+      els.secBaseline.textContent = `Baseline ~${baseline.inboundMbps} ↓ / ${baseline.outboundMbps} ↑ Mbps · ${baseline.connections ?? "?"} conns`;
+    } else {
+      els.secBaseline.textContent = "Baseline calibrating…";
+    }
+    els.secConns.textContent = `${metrics.connections} conns · ${metrics.totalKpps} kpps`;
+  } else {
+    els.secThroughput.textContent = "—";
+    els.secBaseline.textContent = "—";
+    els.secConns.textContent = "—";
+  }
+
+  els.secCap.textContent = `Xbox cap: ${cap.upload} ↑ / ${cap.download} ↓ Mbps`;
+
+  const alerts = sec.alerts || [];
+  els.secAlerts.innerHTML = alerts.length
+    ? alerts.map((a) => {
+        const cls = a.type === "inbound_flood" || a.type === "packet_storm" ? "route-rec route-rec-high" : "route-rec route-rec-med";
+        return `<div class="${cls}"><strong>${(a.type || "alert").replace(/_/g, " ")}</strong><br><span class="muted-ip">${a.detail || ""}</span></div>`;
+      }).join("")
+    : "";
+
+  const events = sec.recentEvents || [];
+  els.secEventsBody.innerHTML = events.length
+    ? events
+        .slice()
+        .reverse()
+        .map((e) => `<tr>
+            <td>${formatSecTime(e.at)}</td>
+            <td><code>${e.type || e.severity || "—"}</code></td>
+            <td>${e.detail || "—"}</td>
+          </tr>`)
+        .join("")
+    : "<tr><td colspan=\"3\">No security events yet</td></tr>";
+
+  if (guardOn) {
+    els.securityStatus.textContent =
+      "Flood guard ON — per-source inbound limits active; Xbox Live / Warzone ports whitelisted.";
+  } else if (alerts.length) {
+    els.securityStatus.textContent = "Suspicious inbound pattern detected — guard will auto-activate if severity rises.";
+  } else {
+    els.securityStatus.textContent = "Firewalla inbound flood detection — auto-defends Xbox during boot/flood patterns.";
+  }
+}
+
+async function setSecurityGuard(mode) {
+  els.securityStatus.textContent = mode === "defend" ? "Activating flood guard…" : "Relaxing flood guard…";
+  try {
+    const res = await fetch("/api/security-guard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    renderSecurityTelemetry(body.telemetry, { active: mode === "defend", status: body.status });
+  } catch (err) {
+    els.securityStatus.textContent = `Guard action failed: ${err.message}`;
+  }
+}
+
+els.securityDefendBtn?.addEventListener("click", () => setSecurityGuard("defend"));
+els.securityRelaxBtn?.addEventListener("click", () => setSecurityGuard("relax"));
 
 function natClass(natType) {
   if (natType === "open") return "nh-nat-open";
@@ -892,6 +1032,151 @@ function formatKbps(bytes, windowSec) {
   return ((bytes * 8) / windowSec / 1000).toFixed(1);
 }
 
+function formatMbps(bytes, windowSec) {
+  if (!bytes || !windowSec) return 0;
+  return (bytes * 8) / windowSec / 1_000_000;
+}
+
+function formatRateLabel(kbps) {
+  const v = Number(kbps) || 0;
+  if (v >= 1000) return `${(v / 1000).toFixed(2)} Mbps`;
+  return `${v.toFixed(1)} Kbps`;
+}
+
+function formatRatePair(kbps) {
+  const v = Number(kbps) || 0;
+  const mbps = v / 1000;
+  if (v >= 1000) return `${mbps.toFixed(2)} Mbps (${Math.round(v)} Kbps)`;
+  return `${v.toFixed(1)} Kbps`;
+}
+
+function formatMbTotal(bytes) {
+  const mb = (Number(bytes) || 0) / 1048576;
+  if (mb >= 1024) return `${(mb / 1024).toFixed(2)} GB`;
+  if (mb >= 1) return `${mb.toFixed(2)} MB`;
+  if (mb >= 0.001) return `${(mb * 1024).toFixed(1)} KB`;
+  return "0 B";
+}
+
+function throughputSummary() {
+  if (!history.length) {
+    return { peakDown: 0, peakUp: 0, totalDownBytes: 0, totalUpBytes: 0 };
+  }
+  let peakDown = 0;
+  let peakUp = 0;
+  let totalDownBytes = 0;
+  let totalUpBytes = 0;
+  for (const p of history) {
+    peakDown = Math.max(peakDown, p.downKbps || 0);
+    peakUp = Math.max(peakUp, p.upKbps || 0);
+    totalDownBytes += p.downBytes || 0;
+    totalUpBytes += p.upBytes || 0;
+  }
+  return { peakDown, peakUp, totalDownBytes, totalUpBytes };
+}
+
+function renderMocaPath(moca, accessPath, mocaTrack) {
+  const track = mocaTrack || null;
+  const pathLabel = accessPath || "ScreenBeam MoCA (Xbox-dedicated)";
+
+  if (track?.adapters?.length) {
+    const [a1, a2] = track.adapters;
+    if (a1 && els.mocaDev1Label) {
+      els.mocaDev1Label.textContent = a1.label || "MoCA .13";
+      els.mocaDev1Status.innerHTML = a1.online
+        ? `<span class="sec-ok">ONLINE</span> ${a1.avgMs} ms`
+        : `<span class="sec-high">OFFLINE</span>`;
+      els.mocaDev1Detail.textContent = [
+        a1.ip,
+        a1.firmware ? `fw ${a1.firmware}` : null,
+        a1.mocaLink ? `MoCA ${a1.mocaLink}` : null,
+        a1.ethSpeed ? `eth ${a1.ethSpeed}` : null,
+        a1.networkSearch === false ? "search off" : a1.networkSearch ? "search on" : null,
+        a1.preferredNc ? "preferred NC" : null,
+        a1.jitterMs != null ? `jitter ${a1.jitterMs} ms` : null,
+      ].filter(Boolean).join(" · ");
+    }
+    if (a2 && els.mocaDev2Label) {
+      els.mocaDev2Label.textContent = a2.label || "MoCA .19";
+      els.mocaDev2Status.innerHTML = a2.online
+        ? `<span class="sec-ok">ONLINE</span> ${a2.avgMs} ms`
+        : `<span class="sec-high">OFFLINE</span>`;
+      els.mocaDev2Detail.textContent = [
+        a2.ip,
+        a2.firmware ? `fw ${a2.firmware}` : null,
+        a2.mocaLink ? `MoCA ${a2.mocaLink}` : null,
+        a2.ethSpeed ? `eth ${a2.ethSpeed}` : null,
+        a2.networkSearch === false ? "search off" : a2.networkSearch ? "search on" : null,
+        a2.jitterMs != null ? `jitter ${a2.jitterMs} ms` : null,
+      ].filter(Boolean).join(" · ");
+    }
+    const xp = track.xboxPath || track.path || {};
+    if (els.mocaXboxStatus) {
+      const jitter = xp.jitterMs ?? track.path?.jitterMs;
+      els.mocaXboxStatus.innerHTML = xp.online !== false
+        ? `<span class="sec-ok">${xp.avgMs ?? track.path?.avgMs ?? "—"} ms</span>`
+        : `<span class="sec-high">—</span>`;
+      els.mocaXboxDetail.textContent = [
+        xp.ip || "192.168.167.65",
+        jitter != null ? `jitter ${jitter} ms` : null,
+        track.path?.estimatedMocaHopMs != null ? `est. MoCA hop ${track.path.estimatedMocaHopMs} ms` : null,
+      ].filter(Boolean).join(" · ");
+    }
+    const allOk = track.adapters.every((a) => a.online) && (track.path?.ok ?? true);
+    els.mocaPathNote.textContent = allOk
+      ? `${pathLabel} — adapters .13 & .19 online · end-to-end stable`
+      : `${pathLabel} — check offline MoCA adapter`;
+    return;
+  }
+
+  if (!moca?.ok) {
+    els.mocaPathNote.textContent = moca?.error
+      ? `${pathLabel} — probe error: ${moca.error}`
+      : `${pathLabel} — probing Firewalla → Xbox latency…`;
+    return;
+  }
+  const jitter = moca.jitterMs ?? 0;
+  const jitterNote =
+    jitter > 3
+      ? " — elevated jitter, check coax/terminations"
+      : jitter > 1.5
+        ? " — moderate jitter"
+        : " — stable";
+  els.mocaPathNote.textContent =
+    `${pathLabel}: ${moca.avgMs} ms avg (${moca.minMs}–${moca.maxMs} ms), jitter ${jitter} ms${jitterNote}`;
+}
+
+function renderThroughputDetails(sample, windowSec) {
+  const downKbps = Number(formatKbps(sample.bytesIn, windowSec));
+  const upKbps = Number(formatKbps(sample.bytesOut, windowSec));
+  const downMbps = formatMbps(sample.bytesIn, windowSec);
+  const upMbps = formatMbps(sample.bytesOut, windowSec);
+  const { peakDown, peakUp, totalDownBytes, totalUpBytes } = throughputSummary();
+
+  els.metricDown.innerHTML = `${downKbps.toFixed(1)} <small>Kbps</small>`;
+  els.metricUp.innerHTML = `${upKbps.toFixed(1)} <small>Kbps</small>`;
+  els.metricDownDetail.textContent = `${downMbps.toFixed(2)} Mbps · ${formatMbTotal(sample.bytesIn)} in ${windowSec}s window`;
+  els.metricUpDetail.textContent = `${upMbps.toFixed(2)} Mbps · ${formatMbTotal(sample.bytesOut)} in ${windowSec}s window`;
+
+  if (els.tpNowDown) {
+    els.tpNowDown.textContent = `${formatRateLabel(downKbps)} · ${formatMbTotal(sample.bytesIn)}`;
+    els.tpNowUp.textContent = `${formatRateLabel(upKbps)} · ${formatMbTotal(sample.bytesOut)}`;
+    els.tpPeakDown.textContent = formatRatePair(peakDown);
+    els.tpPeakUp.textContent = formatRatePair(peakUp);
+    els.tpTotalDown.textContent = formatMbTotal(totalDownBytes);
+    els.tpTotalUp.textContent = formatMbTotal(totalUpBytes);
+    els.tpWindow.textContent = `${windowSec}s · ${history.length} samples · cap 500/500 Mbps`;
+  }
+
+  if (els.throughputNote) {
+    const pkNote =
+      peakDown >= 1000 || peakUp >= 100
+        ? ` Peak download ${formatRateLabel(peakDown)} · session ${formatMbTotal(totalDownBytes)} down / ${formatMbTotal(totalUpBytes)} up.`
+        : "";
+    els.throughputNote.textContent = `Sample ${windowSec}s window from Firewalla.${pkNote}`;
+  }
+}
+
 function setError(message) {
   if (!message) {
     els.errorBanner.classList.remove("visible");
@@ -913,18 +1198,27 @@ function renderChart() {
   const max = Math.max(
     ...history.flatMap((p) => [p.downKbps, p.upKbps, 1]),
   );
-  const pad = 24;
+  const pad = 28;
   const innerW = w - pad * 2;
   const innerH = h - pad * 2;
 
+  if (els.chartYMax) {
+    els.chartYMax.textContent = max >= 1000 ? `${(max / 1000).toFixed(1)} Mbps` : `${Math.round(max)} Kbps`;
+  }
+
   ctx.strokeStyle = "#243044";
   ctx.lineWidth = 1;
+  ctx.fillStyle = "#8ea0b8";
+  ctx.font = "11px Segoe UI, system-ui, sans-serif";
   for (let i = 0; i <= 3; i++) {
     const y = pad + (innerH / 3) * i;
     ctx.beginPath();
     ctx.moveTo(pad, y);
     ctx.lineTo(w - pad, y);
     ctx.stroke();
+    const tickVal = max - (max / 3) * i;
+    const label = tickVal >= 1000 ? `${(tickVal / 1000).toFixed(1)}M` : `${Math.round(tickVal)}K`;
+    ctx.fillText(label, 4, y + 4);
   }
 
   function drawLine(key, color) {
@@ -961,11 +1255,23 @@ function renderSnapshot(payload) {
     networkHealthProbing,
     processor,
     effectivePollMs,
+    security,
+    floodGuard,
+    mocaPath,
+    mocaTrack,
+    accessPath,
   } = payload;
   setError(lastError || routeError || routeEnforceError);
   if (typeof reEnabled === "boolean") routeEnforcementEnabled = reEnabled;
 
   renderProcessor(processor || data?.processor, effectivePollMs);
+
+  renderSecurityTelemetry(
+    security || data?.securityTelemetry,
+    floodGuard,
+  );
+
+  renderMocaPath(mocaPath || data?.mocaPath, accessPath, mocaTrack || data?.mocaTrack);
 
   renderNetworkHealth(
     networkHealth || data?.networkHealth,
@@ -1005,8 +1311,7 @@ function renderSnapshot(payload) {
   const downKbps = Number(formatKbps(sample.bytesIn, windowSec));
   const upKbps = Number(formatKbps(sample.bytesOut, windowSec));
 
-  els.metricDown.innerHTML = `${downKbps.toFixed(1)} <small>Kbps</small>`;
-  els.metricUp.innerHTML = `${upKbps.toFixed(1)} <small>Kbps</small>`;
+  renderThroughputDetails(sample, windowSec);
   els.metricPkts.textContent = String(sample.packets ?? 0);
   els.metricConns.textContent = String(data.connections?.count ?? 0);
 
@@ -1106,7 +1411,14 @@ function renderSnapshot(payload) {
         .join("")
     : "<tr><td colspan=\"4\">No recent flows recorded</td></tr>";
 
-  history.push({ downKbps, upKbps, ts: Date.now() });
+  history.push({
+    downKbps,
+    upKbps,
+    downBytes: Number(sample.bytesIn) || 0,
+    upBytes: Number(sample.bytesOut) || 0,
+    windowSec,
+    ts: Date.now(),
+  });
   if (history.length > MAX_POINTS) history.shift();
   renderChart();
 

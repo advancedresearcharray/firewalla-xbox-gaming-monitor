@@ -27,3 +27,10 @@ xbox_sources() {
   require_xbox_ip
   { echo "${XBOX_IP}"; discover_xbox_ipv6; } | sort -u | grep -v '^$' || true
 }
+
+# Inbound whitelist for flood guard — Xbox Live + Call of Duty: Warzone (Xbox One / Series)
+# Ref: Activision platform ports + standard Xbox Live requirements
+# UDP: 88, 500, 3074-3075, 3544, 4500, 53, 9002 (remote play)
+# TCP: 3074, 80, 53 (+ 443 HTTPS / store backends)
+XBOX_UDP_PORTS=(88 500 3074 3075 3544 4500 53 9002)
+XBOX_TCP_PORTS=(3074 80 53 443 2869)

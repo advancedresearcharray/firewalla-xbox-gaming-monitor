@@ -25,10 +25,12 @@
         <article class="card">
           <h2>Download</h2>
           <div class="metric" id="metric-down">— <small>Kbps</small></div>
+          <div class="metric-detail" id="metric-down-detail">—</div>
         </article>
         <article class="card">
           <h2>Upload</h2>
           <div class="metric" id="metric-up">— <small>Kbps</small></div>
+          <div class="metric-detail" id="metric-up-detail">—</div>
         </article>
         <article class="card">
           <h2>Packets / 3s</h2>
@@ -50,9 +52,56 @@
 
       <section class="split">
         <article class="card">
-          <h2>Throughput history</h2>
+          <div class="route-header">
+            <h2>Throughput history</h2>
+            <div class="chart-legend">
+              <span class="legend-item legend-down">Download</span>
+              <span class="legend-item legend-up">Upload</span>
+            </div>
+          </div>
+          <div class="throughput-details" id="throughput-details">
+            <div class="throughput-stat">
+              <span class="throughput-label">Now</span>
+              <span id="tp-now-down" class="throughput-val down">— ↓</span>
+              <span id="tp-now-up" class="throughput-val up">— ↑</span>
+            </div>
+            <div class="throughput-stat">
+              <span class="throughput-label">Peak (chart)</span>
+              <span id="tp-peak-down" class="throughput-val down">— ↓</span>
+              <span id="tp-peak-up" class="throughput-val up">— ↑</span>
+            </div>
+            <div class="throughput-stat">
+              <span class="throughput-label">Session total</span>
+              <span id="tp-total-down" class="throughput-val down">— ↓</span>
+              <span id="tp-total-up" class="throughput-val up">— ↑</span>
+            </div>
+            <div class="throughput-stat">
+              <span class="throughput-label">Sample window</span>
+              <span id="tp-window" class="throughput-val">—</span>
+            </div>
+          </div>
           <div class="chart-wrap">
-            <canvas id="chart" width="800" height="180"></canvas>
+            <canvas id="chart" width="800" height="200"></canvas>
+            <div class="chart-y-label" id="chart-y-max">—</div>
+          </div>
+          <p class="section-note" id="throughput-note">Live Xbox traffic from Firewalla — sample every few seconds.</p>
+          <p class="section-note" id="moca-path-note">Access: ScreenBeam MoCA (Xbox-dedicated) — probing path latency…</p>
+          <div class="network-health-grid moca-devices-grid" id="moca-devices-grid">
+            <article class="nh-metric-card">
+              <h3 id="moca-dev1-label">MoCA .13</h3>
+              <div class="nh-metric nh-metric-sm" id="moca-dev1-status">—</div>
+              <p class="nh-detail" id="moca-dev1-detail">—</p>
+            </article>
+            <article class="nh-metric-card">
+              <h3 id="moca-dev2-label">MoCA .19</h3>
+              <div class="nh-metric nh-metric-sm" id="moca-dev2-status">—</div>
+              <p class="nh-detail" id="moca-dev2-detail">—</p>
+            </article>
+            <article class="nh-metric-card">
+              <h3>Xbox path</h3>
+              <div class="nh-metric nh-metric-sm" id="moca-xbox-status">—</div>
+              <p class="nh-detail" id="moca-xbox-detail">—</p>
+            </article>
           </div>
         </article>
         <article class="card">
@@ -144,6 +193,61 @@
         </div>
       </section>
 
+      <section class="card security-card">
+        <div class="route-header">
+          <h2>Security telemetry</h2>
+          <div class="route-actions">
+            <button type="button" class="policy-btn" id="security-defend-btn">Defend now</button>
+            <button type="button" class="policy-btn" id="security-relax-btn">Relax guard</button>
+          </div>
+        </div>
+        <p class="section-note" id="security-status">Flood guard stays ON — per-source inbound limits active; Xbox Live / Warzone ports whitelisted.</p>
+        <details class="role-legend">
+          <summary>Whitelisted ports (inbound to Xbox — never rate-limited)</summary>
+          <ul>
+            <li><strong>UDP</strong> — 88, 500, 3074, 3075, 3544, 4500, 53, 9002</li>
+            <li><strong>TCP</strong> — 3074, 80, 53, 443 (+ 2869 UPnP)</li>
+            <li>Established connections pass first; everything else is per-source hashlimit</li>
+          </ul>
+        </details>
+        <div class="network-health-grid security-grid">
+          <article class="nh-metric-card">
+            <h3>Threat level</h3>
+            <div class="nh-metric" id="sec-severity">—</div>
+            <p class="nh-detail" id="sec-severity-detail">—</p>
+          </article>
+          <article class="nh-metric-card">
+            <h3>Flood guard</h3>
+            <div class="nh-metric nh-metric-sm" id="sec-guard">—</div>
+            <p class="nh-detail" id="sec-guard-detail">—</p>
+          </article>
+          <article class="nh-metric-card">
+            <h3>Inbound / Outbound</h3>
+            <div class="nh-metric nh-metric-sm" id="sec-throughput">—</div>
+            <p class="nh-detail" id="sec-baseline">—</p>
+          </article>
+          <article class="nh-metric-card">
+            <h3>Connections / PPS</h3>
+            <div class="nh-metric nh-metric-sm" id="sec-conns">—</div>
+            <p class="nh-detail" id="sec-cap">Xbox cap: 500 ↑ / 500 ↓ Mbps</p>
+          </article>
+        </div>
+        <div id="sec-alerts" class="route-recs"></div>
+        <h3 class="route-subhead">Recent security events</h3>
+        <table class="security-events-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Type</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody id="sec-events-body">
+            <tr><td colspan="3">Waiting for telemetry…</td></tr>
+          </tbody>
+        </table>
+      </section>
+
       <section class="card policy-card">
         <h2>Traffic policy</h2>
         <p class="section-note">Classify each server by function and optionally shape Xbox traffic by role using Firewalla DSCP + CAKE.</p>
@@ -161,8 +265,8 @@
             <button type="button" class="policy-btn" data-bw-mode="static">Static Mbps</button>
           </div>
           <div class="competitive-fields" id="bandwidth-static-fields" hidden>
-            <label>Upload Mbps <input type="number" id="bw-upload" min="1" max="1000" value="10" /></label>
-            <label>Download Mbps <input type="number" id="bw-download" min="1" max="1000" value="50" /></label>
+            <label>Upload Mbps <input type="number" id="bw-upload" min="1" max="1000" value="500" /></label>
+            <label>Download Mbps <input type="number" id="bw-download" min="1" max="1000" value="500" /></label>
           </div>
           <p class="policy-status" id="bandwidth-status">Bandwidth: dynamic</p>
 

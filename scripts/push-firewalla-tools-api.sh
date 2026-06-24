@@ -37,7 +37,7 @@ echo "[firewalla-tools] Push via ${FIREWALLA_API_URL} (no SSH)"
 for script in gaming-snapshot.sh gaming-role-qos.sh gaming-route-probe.sh gaming-route-enforce.sh \
   gaming-bandwidth-qos.sh gaming-buffer-tune.sh gaming-dns-policy.sh xbox-scope.sh \
   gaming-nat-check.sh gaming-mtu-probe.sh gaming-offload-audit.sh gaming-firewalla-tune.sh \
-  gaming-processor-tune.sh gaming-link-status.sh; do
+  gaming-processor-tune.sh gaming-link-status.sh gaming-flood-guard.sh; do
   echo "  $script"
   api_update "$script" "$SRC/remote/$script" 755
 done

@@ -23,6 +23,7 @@ import {
 } from "./lib/ai-advisor.mjs";
 import {
   getAdaptiveThresholds,
+  initLearningStorage,
   recordSnapshot,
   recordSessionEvent,
 } from "./lib/ai-learning.mjs";
@@ -53,6 +54,23 @@ import {
   memoryPressureTier,
   snapshotArgsForPressure,
 } from "./lib/memory-pressure.mjs";
+import { compressionEnabled, compressionHealth } from "./lib/array-compression-client.mjs";
+import {
+  detectGamingQosMode,
+  ensureDynamicBandwidth,
+  ensureStaticBandwidthCaps,
+  netbotQosEnabled,
+  removeBandwidthCaps,
+  resolveXboxMac,
+} from "./lib/qos-netbot.mjs";
+import {
+  analyzeSecurityTelemetry,
+  shouldActivateGuard,
+  shouldRelaxGuard,
+  markGuardActive,
+  guardActionCooldownReady,
+  getSecurityState,
+} from "./lib/security-telemetry.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -65,7 +83,7 @@ const ROUTE_PROBE_MS = (routeConfig.probeIntervalSec || 300) * 1000;
 const FIREWALLA_API_URL = process.env.FIREWALLA_API_URL || "";
 const FIREWALLA_API_TOKEN = process.env.FIREWALLA_API_TOKEN || "";
 if (!FIREWALLA_API_URL) {
-  console.error("FIREWALLA_API_URL is required — SSH to Firewalla is disabled");
+  console.error("FIREWALLA_API_URL is required — configure array-firewalla-api on the LAN");
   process.exit(1);
 }
 if (!FIREWALLA_API_TOKEN) {
@@ -100,6 +118,17 @@ const REMOTE_PROCESSOR_TUNE =
 const REMOTE_FIREWALLA_TUNE =
   process.env.REMOTE_FIREWALLA_TUNE ||
   "/home/pi/gaming-tools/gaming-firewalla-tune.sh";
+const REMOTE_FLOOD_GUARD =
+  process.env.REMOTE_FLOOD_GUARD ||
+  "/home/pi/gaming-tools/gaming-flood-guard.sh";
+const REMOTE_MOCA_TUNE =
+  process.env.REMOTE_MOCA_TUNE ||
+  "/home/pi/gaming-tools/gaming-moca-tune.sh";
+const MOCA_PING_MS = Number(process.env.MOCA_PING_MS || 120000);
+const ACCESS_PATH =
+  process.env.ACCESS_PATH || "ScreenBeam MoCA (Xbox-dedicated)";
+const FLOOD_GUARD_MODE = (process.env.FLOOD_GUARD_MODE || "always").toLowerCase();
+const floodGuardAlwaysOn = FLOOD_GUARD_MODE === "always";
 const XBOX_IP = process.env.XBOX_IP || "";
 const NETWORK_HEALTH_MS = Number(process.env.NETWORK_HEALTH_MS || 900000);
 
@@ -143,6 +172,14 @@ let lastAdvisorProcessorHealth = null;
 let lastUnknownHostCount = 0;
 let lastAutoAnalysisAt = 0;
 const AUTO_ANALYSIS_COOLDOWN_MS = 15000;
+let lastSecurityTelemetry = null;
+let floodGuardStatus = null;
+let floodGuardError = null;
+let lastMocaProbe = null;
+let lastMocaTrack = null;
+let lastMocaProbeAt = 0;
+let mocaTuneStatus = null;
+let mocaTuneError = null;
 
 function buildAdvisorContext() {
   return {
@@ -248,6 +285,15 @@ function getLatest() {
   }
   if (lastRouteData && data.routeAnalysis) {
     data.routeAnalysis.folding = processorTelemetry?.folding || null;
+  }
+  if (lastSecurityTelemetry) {
+    data.securityTelemetry = lastSecurityTelemetry;
+  }
+  if (lastMocaProbe) {
+    data.mocaPath = lastMocaProbe;
+  }
+  if (lastMocaTrack) {
+    data.mocaTrack = lastMocaTrack;
   }
   return data;
 }
@@ -399,6 +445,68 @@ async function sampleProcessorLoad() {
   }
 }
 
+async function applyMocaTune() {
+  mocaTuneStatus = await runRemoteScript(REMOTE_MOCA_TUNE, ["apply"], { sudo: true });
+  mocaTuneError = null;
+  return mocaTuneStatus;
+}
+
+async function probeMocaPath() {
+  if (Date.now() - lastMocaProbeAt < MOCA_PING_MS) return lastMocaTrack || lastMocaProbe;
+  try {
+    const out = await runRemoteScript(REMOTE_MOCA_TUNE, ["track"], { sudo: false });
+    lastMocaTrack = JSON.parse(out);
+    lastMocaProbe = lastMocaTrack?.xboxPath || lastMocaTrack?.path || null;
+    if (lastMocaProbe && !lastMocaProbe.path) {
+      lastMocaProbe = {
+        ok: true,
+        host: lastMocaTrack.xboxPath?.ip,
+        avgMs: lastMocaTrack.path?.avgMs ?? lastMocaTrack.xboxPath?.avgMs,
+        jitterMs: lastMocaTrack.path?.jitterMs ?? lastMocaTrack.xboxPath?.jitterMs,
+        minMs: lastMocaTrack.xboxPath?.minMs,
+        maxMs: lastMocaTrack.xboxPath?.maxMs,
+        path: "firewalla-to-xbox",
+      };
+    }
+    lastMocaProbeAt = Date.now();
+    mocaTuneError = null;
+  } catch (err) {
+    mocaTuneError = err instanceof Error ? err.message : String(err);
+  }
+  return lastMocaTrack || lastMocaProbe;
+}
+
+async function applyFloodGuard(mode) {
+  const cmd = mode === "defend" ? "defend" : "relax";
+  floodGuardStatus = await runRemoteScript(REMOTE_FLOOD_GUARD, [cmd], { sudo: true });
+  markGuardActive(cmd === "defend");
+  floodGuardError = null;
+  return floodGuardStatus;
+}
+
+async function maybeAdjustSecurityGuard(snapshot) {
+  lastSecurityTelemetry = analyzeSecurityTelemetry(snapshot);
+  if (!guardActionCooldownReady()) return lastSecurityTelemetry;
+
+  try {
+    if (shouldActivateGuard(lastSecurityTelemetry)) {
+      if (!getSecurityState().guardActive) {
+        await applyFloodGuard("defend");
+        console.warn("[security] Flood guard ON — inbound attack pattern detected");
+      }
+    } else if (!floodGuardAlwaysOn && shouldRelaxGuard(lastSecurityTelemetry)) {
+      await applyFloodGuard("relax");
+      console.log("[security] Flood guard OFF — traffic normalized");
+    }
+  } catch (err) {
+    floodGuardError = err instanceof Error ? err.message : String(err);
+  }
+  lastSecurityTelemetry.guardActive = getSecurityState().guardActive;
+  lastSecurityTelemetry.floodGuardStatus = floodGuardStatus;
+  lastSecurityTelemetry.floodGuardError = floodGuardError;
+  return lastSecurityTelemetry;
+}
+
 async function applyProcessorTune() {
   const parts = [];
   try {
@@ -441,21 +549,66 @@ function fetchSnapshot() {
   return runRemoteScript(REMOTE_SCRIPT, args);
 }
 
+async function netbotCall(mtype, data, target = null) {
+  return firewallaClient.netbot(mtype, data, target);
+}
+
+async function xboxMacForQos() {
+  const fromSnapshot = rawSnapshot?.xbox?.mac;
+  if (fromSnapshot) return fromSnapshot;
+  return resolveXboxMac(netbotCall, XBOX_IP);
+}
+
 async function applyBandwidthPolicy(profile) {
   const policy = loadPolicy();
+  const mac = await xboxMacForQos();
+  const useNetbot = netbotQosEnabled() && mac;
+
   if (profile !== "competitive") {
+    if (useNetbot) {
+      try {
+        const result = await removeBandwidthCaps(netbotCall, mac);
+        bandwidthStatus = JSON.stringify(result);
+        await runRemoteScript(REMOTE_BANDWIDTH, ["off"], { sudo: true }).catch(() => "");
+        return { mode: "off", ...result, status: bandwidthStatus };
+      } catch (err) {
+        console.warn("[qos] netbot off failed, falling back to script:", err.message);
+      }
+    }
     bandwidthStatus = await runRemoteScript(REMOTE_BANDWIDTH, ["off"], { sudo: true });
     return { mode: "off", status: bandwidthStatus };
   }
+
   if (policy.bandwidth.mode === "static") {
-    const up = Number(policy.bandwidth.uploadMbps) || 10;
-    const down = Number(policy.bandwidth.downloadMbps) || 50;
+    const up = Number(policy.bandwidth.uploadMbps) || 500;
+    const down = Number(policy.bandwidth.downloadMbps) || 500;
+    if (useNetbot) {
+      try {
+        const result = await ensureStaticBandwidthCaps(netbotCall, mac, up, down);
+        bandwidthStatus = JSON.stringify(result);
+        await runRemoteScript(REMOTE_BANDWIDTH, ["off"], { sudo: true }).catch(() => "");
+        return { mode: "static", uploadMbps: up, downloadMbps: down, ...result, status: bandwidthStatus };
+      } catch (err) {
+        console.warn("[qos] netbot static failed, falling back to tc script:", err.message);
+      }
+    }
     bandwidthStatus = await runRemoteScript(
       REMOTE_BANDWIDTH,
       ["static", String(up), String(down)],
       { sudo: true },
     );
     return { mode: "static", uploadMbps: up, downloadMbps: down, status: bandwidthStatus };
+  }
+
+  if (useNetbot) {
+    try {
+      const result = await ensureDynamicBandwidth(netbotCall, mac);
+      bandwidthStatus = JSON.stringify(result);
+      await runRemoteScript(REMOTE_BANDWIDTH, ["dynamic"], { sudo: true }).catch(() => "");
+      return { mode: "dynamic", ...result, status: bandwidthStatus };
+    } catch (err) {
+      console.warn("[qos] netbot dynamic failed, falling back to script:", err.message);
+    }
   }
   bandwidthStatus = await runRemoteScript(REMOTE_BANDWIDTH, ["dynamic"], { sudo: true });
   return { mode: "dynamic", status: bandwidthStatus };
@@ -496,7 +649,15 @@ async function applyCompetitivePolicies(profile) {
   const bandwidth = await applyBandwidthPolicy(profile);
   const buffers = await applyBufferPolicy(profile);
   const dns = await applyDnsPolicy(profile);
-  return { ...qos, bandwidth, buffers, dns };
+  let moca = null;
+  if (profile === "competitive") {
+    try {
+      moca = await applyMocaTune();
+    } catch (err) {
+      mocaTuneError = err instanceof Error ? err.message : String(err);
+    }
+  }
+  return { ...qos, bandwidth, buffers, dns, moca: mocaTuneStatus, mocaError: mocaTuneError };
 }
 
 async function applyQosProfile(profile) {
@@ -563,6 +724,8 @@ async function pollOnce() {
       sessionPhase: phase,
     });
     maybeRunAutoAnalysis(enriched, routeAnalysis);
+    await maybeAdjustSecurityGuard(rawSnapshot);
+    probeMocaPath().catch(() => {});
     if (trafficProfile !== "balanced" && Date.now() - lastQosSync > 30000) {
       try {
         await applyCompetitivePolicies(trafficProfile);
@@ -611,6 +774,18 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
   if (url.pathname === "/api/health") {
+    let compression = { enabled: compressionEnabled(), ok: false };
+    if (compression.enabled) {
+      try {
+        compression = { enabled: true, ok: true, ...(await compressionHealth()) };
+      } catch (err) {
+        compression = {
+          enabled: true,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
     sendJson(res, 200, {
       ok: true,
       firewallaApi: FIREWALLA_API_URL,
@@ -623,6 +798,18 @@ const server = http.createServer(async (req, res) => {
       lastError,
       processor: processorTelemetry,
       effectivePollMs,
+      compression,
+      security: lastSecurityTelemetry,
+      floodGuard: {
+        active: getSecurityState().guardActive,
+        mode: FLOOD_GUARD_MODE,
+        alwaysOn: floodGuardAlwaysOn,
+        status: floodGuardStatus,
+        error: floodGuardError,
+      },
+      mocaPath: lastMocaProbe,
+      mocaTrack: lastMocaTrack,
+      accessPath: ACCESS_PATH,
     });
     return;
   }
@@ -689,6 +876,14 @@ const server = http.createServer(async (req, res) => {
       bandwidthStatus,
       bufferStatus,
       dnsStatus,
+      security: lastSecurityTelemetry,
+      floodGuard: {
+        active: getSecurityState().guardActive,
+        mode: FLOOD_GUARD_MODE,
+        alwaysOn: floodGuardAlwaysOn,
+        status: floodGuardStatus,
+        error: floodGuardError,
+      },
     });
     return;
   }
@@ -712,6 +907,45 @@ const server = http.createServer(async (req, res) => {
         summary: policySummary(policy),
         applied,
         data: getLatest(),
+      });
+    } catch (err) {
+      sendJson(res, 500, {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return;
+  }
+
+  if (url.pathname === "/api/security-telemetry" && req.method === "GET") {
+    sendJson(res, 200, {
+      telemetry: lastSecurityTelemetry,
+      state: getSecurityState(),
+      floodGuard: {
+        active: getSecurityState().guardActive,
+        mode: FLOOD_GUARD_MODE,
+        alwaysOn: floodGuardAlwaysOn,
+        status: floodGuardStatus,
+        error: floodGuardError,
+      },
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/security-guard" && req.method === "POST") {
+    try {
+      const body = await readBody(req);
+      const mode = body.mode === "defend" ? "defend" : "relax";
+      const status = await applyFloodGuard(mode);
+      lastSecurityTelemetry = analyzeSecurityTelemetry(rawSnapshot);
+      if (lastSecurityTelemetry) {
+        lastSecurityTelemetry.guardActive = getSecurityState().guardActive;
+        lastSecurityTelemetry.floodGuardStatus = status;
+      }
+      sendJson(res, 200, {
+        ok: true,
+        mode,
+        status,
+        telemetry: lastSecurityTelemetry,
       });
     } catch (err) {
       sendJson(res, 500, {
@@ -896,7 +1130,7 @@ const server = http.createServer(async (req, res) => {
     });
     const push = () => {
       res.write(
-        `data: ${JSON.stringify({ data: getLatest(), lastError, trafficProfile, policy: loadPolicy(), policySummary: policySummary(), routeError, routeEnforceError, routeEnforcementEnabled, routeProbing, networkHealth: lastNetworkHealth, networkHealthSummary: networkHealthSummary(lastNetworkHealth), networkHealthError, networkHealthProbing, processor: processorTelemetry, effectivePollMs })}\n\n`,
+        `data: ${JSON.stringify({ data: getLatest(), lastError, trafficProfile, policy: loadPolicy(), policySummary: policySummary(), routeError, routeEnforceError, routeEnforcementEnabled, routeProbing, networkHealth: lastNetworkHealth, networkHealthSummary: networkHealthSummary(lastNetworkHealth), networkHealthError, networkHealthProbing, processor: processorTelemetry, effectivePollMs, security: lastSecurityTelemetry, floodGuard: { active: getSecurityState().guardActive, status: floodGuardStatus, error: floodGuardError }, mocaPath: lastMocaProbe, mocaTrack: lastMocaTrack, accessPath: ACCESS_PATH })}\n\n`,
       );
     };
     push();
@@ -931,7 +1165,17 @@ async function verifyFirewallaApi() {
 }
 
 await verifyFirewallaApi();
+await initLearningStorage();
 await pollOnce();
+if (floodGuardAlwaysOn) {
+  try {
+    await applyFloodGuard("defend");
+    console.log("[security] Flood guard always-on — defend active");
+  } catch (err) {
+    floodGuardError = err instanceof Error ? err.message : String(err);
+    console.warn("[security] Always-on flood guard failed:", floodGuardError);
+  }
+}
 if (trafficProfile !== "balanced") {
   try {
     await applyCompetitivePolicies(trafficProfile);

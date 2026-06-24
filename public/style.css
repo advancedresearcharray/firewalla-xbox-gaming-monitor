@@ -124,6 +124,13 @@ main {
   font-weight: 500;
 }
 
+.metric-detail {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
 .ai-phase-pill {
   display: inline-block;
   background: var(--panel-2);
@@ -475,8 +482,81 @@ tr.route-best td:first-child {
 }
 
 .chart-wrap {
-  height: 180px;
+  height: 200px;
   position: relative;
+}
+
+.chart-y-label {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.chart-legend {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.82rem;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+}
+
+.legend-item::before {
+  content: "";
+  width: 1rem;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.legend-down::before {
+  background: #4dabf7;
+}
+
+.legend-up::before {
+  background: #3dd68c;
+}
+
+.throughput-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.65rem 1rem;
+  margin: 0.75rem 0 1rem;
+  padding: 0.75rem;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.throughput-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.throughput-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.throughput-val {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.throughput-val.down {
+  color: #4dabf7;
+}
+
+.throughput-val.up {
+  color: #3dd68c;
 }
 
 canvas {
@@ -534,4 +614,42 @@ footer {
   font-size: 0.8rem;
   text-align: center;
   padding: 1rem;
+}
+
+.security-card .sec-ok {
+  color: var(--green);
+}
+
+.security-card .sec-warn {
+  color: #ffd43b;
+}
+
+.security-card .sec-high {
+  color: #ff922b;
+}
+
+.security-card .sec-critical {
+  color: var(--red);
+}
+
+.security-events-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.security-events-table th,
+.security-events-table td {
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.security-events-table code {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.moca-devices-grid {
+  margin-top: 0.75rem;
 }

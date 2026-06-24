@@ -15,7 +15,17 @@ DOWNLOAD_IF="ifb1"
 # Public hostname for WAN latency probe (resolved at runtime; not a LAN address)
 WAN_PROBE_HOST="one.one.one.one"
 
-# Optional Xbox-only DNS (dashboard controls this; off by default).
+# Optional ScreenBeam MoCA adapter management IPs (167 net, same wire)
+MOCA_DEVICE_1_IP="192.168.167.13"
+MOCA_DEVICE_1_LABEL="MoCA .13"
+MOCA_DEVICE_2_IP="192.168.167.19"
+MOCA_DEVICE_2_LABEL="MoCA .19"
+MOCA_ADMIN_USER="admin"
+MOCA_ADMIN_PASSWORD="screenbeam"
+# Optional: unique 12-17 digit MoCA coax network password (both adapters must match)
+# MOCA_NETWORK_PASSWORD=""
+# Set to 1 to disable network search + set preferred NC on device 1 when competitive QoS applies
+MOCA_ADAPTER_GAMING_TUNE="1"
 # When enabled, gaming-dns-policy.sh redirects DNS only from XBOX_IP — never LAN-wide.
 # XBOX_DNS_PRIMARY="1.1.1.1"
 # XBOX_DNS_SECONDARY="1.0.0.1"

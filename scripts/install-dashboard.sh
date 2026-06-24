@@ -67,6 +67,7 @@ REMOTE_MTU=/home/pi/gaming-tools/gaming-mtu-probe.sh
 REMOTE_OFFLOAD=/home/pi/gaming-tools/gaming-offload-audit.sh
 REMOTE_PROCESSOR_TUNE=/home/pi/gaming-tools/gaming-processor-tune.sh
 REMOTE_FIREWALLA_TUNE=/home/pi/gaming-tools/gaming-firewalla-tune.sh
+REMOTE_FLOOD_GUARD=/home/pi/gaming-tools/gaming-flood-guard.sh
 XBOX_IP=${XBOX_IP}
 EOF
 chmod 600 /etc/default/xbox-traffic-monitor
