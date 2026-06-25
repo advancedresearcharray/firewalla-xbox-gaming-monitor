@@ -72,6 +72,11 @@ Works alongside Firewalla device-level gaming QoS (policies 569/570).
 ├── gaming-role-qos.sh
 ├── gaming-route-probe.sh
 ├── gaming-route-enforce.sh
+├── gaming-flood-guard.sh       # defend | harden | relax
+├── gaming-packet-shield.sh     # shield | strict | relax (tiny-packet filter)
+├── gaming-packet-capture.sh    # deep tcpdump JSON
+├── gaming-buffer-tune.sh       # normal | light | desync | kick | max
+├── gaming-moca-tune.sh
 ├── route-probes.json        # Azure region probes + thresholds
 ├── .traffic-profile.state   # QoS state
 └── .route-enforce.state     # Enforcement state

@@ -25,6 +25,9 @@ need_root() { [[ "${EUID:-$(id -u)}" -eq 0 ]] || { echo "Run with sudo"; exit 1;
 profile_burst() {
   case "${1:-normal}" in
     normal) echo "512k" ;;
+    light) echo "768k" ;;
+    desync) echo "2m" ;;
+    kick) echo "4m" ;;
     large) echo "2m" ;;
     max) echo "4m" ;;
     *) echo "512k" ;;
@@ -34,6 +37,9 @@ profile_burst() {
 ring_scale() {
   case "${1:-normal}" in
     normal) echo "0" ;;
+    light) echo "40" ;;
+    desync) echo "75" ;;
+    kick) echo "100" ;;
     large) echo "75" ;;
     max) echo "100" ;;
     *) echo "0" ;;
@@ -130,11 +136,12 @@ apply_sysctl() {
   local profile="$1"
   local backlog=1000
   case "$profile" in
-    large) backlog=3000 ;;
-    max) backlog=5000 ;;
+    light|normal) backlog=1500 ;;
+    desync|large) backlog=3000 ;;
+    kick|max) backlog=5000 ;;
   esac
   sysctl -w "net.core.netdev_max_backlog=${backlog}" >/dev/null 2>&1 || true
-  if [[ "$profile" == "max" ]]; then
+  if [[ "$profile" == "max" || "$profile" == "kick" ]]; then
     sysctl -w net.core.rmem_max=16777216 >/dev/null 2>&1 || true
     sysctl -w net.core.wmem_max=16777216 >/dev/null 2>&1 || true
   fi
@@ -189,5 +196,5 @@ case "${1:-status}" in
   apply) shift; cmd_apply "${1:-large}" ;;
   off) cmd_off ;;
   status) cmd_status ;;
-  *) echo "Usage: $0 {status|apply normal|large|max|off}"; exit 2 ;;
+  *) echo "Usage: $0 {status|apply normal|light|desync|kick|large|max|off}"; exit 2 ;;
 esac

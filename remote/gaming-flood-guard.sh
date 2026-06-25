@@ -49,43 +49,43 @@ cmd_defend() {
   ipt -N "$CHAIN"
   ipt -A FORWARD -d "$XBOX_IP" -j "$CHAIN"
 
-  # Established game flows first
+  # Established flows always pass (your active game server session)
   ipt -A "$CHAIN" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-  # Xbox Live + Warzone ports (always allow — see xbox-scope.sh for full list)
+  # Game ports: per-source rate limit (blocks kick floods on 3074 etc.)
   for port in "${XBOX_UDP_PORTS[@]}"; do
-    ipt -A "$CHAIN" -p udp --dport "$port" -j ACCEPT
+    ipt -A "$CHAIN" -p udp --dport "$port" -m hashlimit \
+      --hashlimit 400/sec --hashlimit-burst 800 \
+      --hashlimit-mode srcip --hashlimit-name "xbox_udp_game_${port}_${XBOX_IP//./_}" \
+      -j ACCEPT || true
   done
   for port in "${XBOX_TCP_PORTS[@]}"; do
-    ipt -A "$CHAIN" -p tcp --dport "$port" -j ACCEPT
+    ipt -A "$CHAIN" -p tcp --dport "$port" -m conntrack --ctstate NEW -m hashlimit \
+      --hashlimit 120/sec --hashlimit-burst 240 \
+      --hashlimit-mode srcip --hashlimit-name "xbox_tcp_game_${port}_${XBOX_IP//./_}" \
+      -j ACCEPT || true
+    ipt -A "$CHAIN" -p tcp --dport "$port" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT || true
   done
 
-  # Per-source connection cap when connlimit module exists (optional on Firewalla nf_tables)
-  if ipt -A "$CHAIN" -p udp -m connlimit --connlimit 96 --connlimit-mask 32 --connlimit-saddr -j DROP 2>/dev/null; then
-    log "connlimit active (96 UDP flows per source)"
+  # Per-source connection cap when connlimit module exists
+  if ipt -A "$CHAIN" -p udp -m connlimit --connlimit 64 --connlimit-mask 32 --connlimit-saddr -j DROP 2>/dev/null; then
+    log "connlimit active (64 UDP flows per source)"
   else
-    ipt -D "$CHAIN" -p udp -m connlimit --connlimit 96 --connlimit-mask 32 --connlimit-saddr -j DROP 2>/dev/null || true
+    ipt -D "$CHAIN" -p udp -m connlimit --connlimit 64 --connlimit-mask 32 --connlimit-saddr -j DROP 2>/dev/null || true
     log "connlimit unavailable — hashlimit-only mode"
-    ipt -A "$CHAIN" -p udp -m conntrack --ctstate NEW -m hashlimit \
-      --hashlimit 400/sec --hashlimit-burst 800 \
-      --hashlimit-mode srcip --hashlimit-name "xbox_udp_new_${XBOX_IP//./_}" \
-      -j ACCEPT || true
   fi
 
-  # Per-source UDP rate limit (aggressive sources on non-whitelisted ports)
+  # Non-game UDP/TCP caps
   ipt -A "$CHAIN" -p udp -m hashlimit \
-    --hashlimit 1200/sec --hashlimit-burst 2400 \
+    --hashlimit 800/sec --hashlimit-burst 1600 \
     --hashlimit-mode srcip --hashlimit-name "xbox_udp_${XBOX_IP//./_}" \
     -j ACCEPT || true
   ipt -A "$CHAIN" -p udp -j DROP || true
-
-  # TCP SYN flood cap
   ipt -A "$CHAIN" -p tcp --syn -m hashlimit \
-    --hashlimit 180/sec --hashlimit-burst 360 \
+    --hashlimit 120/sec --hashlimit-burst 240 \
     --hashlimit-mode srcip --hashlimit-name "xbox_tcp_${XBOX_IP//./_}" \
     -j ACCEPT || true
   ipt -A "$CHAIN" -p tcp --syn -j DROP || true
-
   ipt -A "$CHAIN" -j ACCEPT || true
 
   {
@@ -93,12 +93,63 @@ cmd_defend() {
     echo "xbox_ip=${XBOX_IP}"
     echo "updated=$(date -Is)"
   } >"$STATE"
-  log "DEFEND — inbound flood guard active for Xbox ${XBOX_IP}"
+  log "DEFEND — per-source game-port limits active for Xbox ${XBOX_IP}"
+}
+
+cmd_harden() {
+  need_root
+  require_xbox_ip
+  cmd_relax
+
+  ipt -N "$CHAIN"
+  ipt -A FORWARD -d "$XBOX_IP" -j "$CHAIN"
+  ipt -A "$CHAIN" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+  # Aggressive per-source caps on game ports (kick-attack mitigation)
+  for port in "${XBOX_UDP_PORTS[@]}"; do
+    ipt -A "$CHAIN" -p udp --dport "$port" -m hashlimit \
+      --hashlimit 180/sec --hashlimit-burst 360 \
+      --hashlimit-mode srcip --hashlimit-name "xbox_harden_${port}_${XBOX_IP//./_}" \
+      -j ACCEPT || true
+  done
+  for port in "${XBOX_UDP_PORTS[@]}"; do
+    ipt -A "$CHAIN" -p udp --dport "$port" -j DROP || true
+  done
+  for port in "${XBOX_TCP_PORTS[@]}"; do
+    ipt -A "$CHAIN" -p tcp --dport "$port" -m hashlimit \
+      --hashlimit 60/sec --hashlimit-burst 120 \
+      --hashlimit-mode srcip --hashlimit-name "xbox_harden_tcp_${port}_${XBOX_IP//./_}" \
+      -j ACCEPT || true
+  done
+
+  if ipt -A "$CHAIN" -p udp -m connlimit --connlimit 32 --connlimit-mask 32 --connlimit-saddr -j DROP 2>/dev/null; then
+    log "connlimit harden (32 UDP flows per source)"
+  fi
+
+  ipt -A "$CHAIN" -p udp -m hashlimit \
+    --hashlimit 400/sec --hashlimit-burst 800 \
+    --hashlimit-mode srcip --hashlimit-name "xbox_harden_udp_${XBOX_IP//./_}" \
+    -j ACCEPT || true
+  ipt -A "$CHAIN" -p udp -j DROP || true
+  ipt -A "$CHAIN" -p tcp --syn -m hashlimit \
+    --hashlimit 60/sec --hashlimit-burst 120 \
+    --hashlimit-mode srcip --hashlimit-name "xbox_harden_tcp_${XBOX_IP//./_}" \
+    -j ACCEPT || true
+  ipt -A "$CHAIN" -p tcp --syn -j DROP || true
+  ipt -A "$CHAIN" -j ACCEPT || true
+
+  {
+    echo "mode=harden"
+    echo "xbox_ip=${XBOX_IP}"
+    echo "updated=$(date -Is)"
+  } >"$STATE"
+  log "HARDEN — aggressive kick/flood mitigation for Xbox ${XBOX_IP}"
 }
 
 case "${1:-status}" in
   status) cmd_status ;;
   defend) cmd_defend ;;
+  harden) cmd_harden ;;
   relax|off) cmd_relax ;;
-  *) echo "Usage: $0 {status|defend|relax}"; exit 2 ;;
+  *) echo "Usage: $0 {status|defend|harden|relax}"; exit 2 ;;
 esac

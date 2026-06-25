@@ -10,3 +10,5 @@ dist/
 data/ai-history.json
 data/ai-host-stats.json
 data/runtime-policy.json
+warzone-lobby-sentinel/rust/target/
+warzone-lobby-sentinel/data/*.json

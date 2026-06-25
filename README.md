@@ -13,6 +13,9 @@ Live Xbox traffic dashboard powered by **Firewalla Gold/Purple**. Monitors conne
 - **Path enforcement** — iptables DROP on slow alternate IPs for Xbox traffic
 - **Dual-stack** — IPv4 + IPv6 (Warzone and modern titles use IPv6 heavily)
 - **Session advisor** — local heuristics, learning, lobby prediction, bandwidth spike detection
+- **Warzone Lobby Sentinel** — autonomous cheater-lobby detection + optional packet shield ([warzone-lobby-sentinel/](warzone-lobby-sentinel/))
+- **Packet shield** — drops tiny inbound flood packets (≤79B) without throttling normal Warzone UDP
+- **Flood guard** — defend/harden modes with per-source limits on game ports (matchmaking / kick spikes)
 
 ## Architecture
 
@@ -36,6 +39,11 @@ The dashboard **never** opens SSH to Firewalla. All remote operations go through
 | `remote/gaming-role-qos.sh` | Firewalla | Per-destination DSCP marking |
 | `remote/gaming-route-probe.sh` | Firewalla | Path probing + datacenter ranking |
 | `remote/gaming-route-enforce.sh` | Firewalla | Block slow paths (ipset + iptables) |
+| `remote/gaming-flood-guard.sh` | Firewalla | Per-source flood limits (defend / harden / relax) |
+| `remote/gaming-packet-shield.sh` | Firewalla | Size-aware shield — drop tiny kick probes, pass normal game packets |
+| `remote/gaming-packet-capture.sh` | Firewalla | Deep tcpdump JSON for sentinel packet analysis |
+| `remote/gaming-buffer-tune.sh` | Firewalla | Xbox tc police burst + NIC rings (normal / light / desync / kick) |
+| `warzone-lobby-sentinel/` | LXC / LAN host | Rust sentinel — cheater verdict, dashboard, phone alerts, network guard |
 | `server.mjs` + `public/` | LAN host / LXC / Docker | Web UI + API |
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
@@ -140,7 +148,9 @@ This project is **separate from** [firewalla/firewalla](https://github.com/firew
 - Route enforcement adds `iptables`/`ipset` DROP rules in `FORWARD` for **Xbox source IPs only**
 - QoS uses `mangle` POSTROUTING DSCP marks; works with Firewalla CAKE `diffserv3`
 - **Competitive bandwidth:** `dynamic` (Firewalla allocates) or `static` Mbps caps on Xbox only via ingress policing
-- **Xbox buffers:** `normal` / `large` / `max` tc police burst (Xbox-only); large/max also widen NIC rings on eth0–eth2
+- **Xbox buffers:** `normal` / `light` / `desync` / `kick` / `max` tc police burst (Xbox-only); desync/kick also widen NIC rings on eth0–eth2
+- **Packet shield:** in-match protection drops inbound UDP/TCP ≤79 bytes (kick probes); normal Warzone packets pass unchanged
+- **Flood guard:** `defend` (per-source game-port limits) or `harden` (aggressive kick mitigation) — use sparingly; prefer packet shield in-match
 - **DNS:** off by default; when enabled, redirects DNS queries **only from XBOX_IP/MAC** — does not change DHCP or global Firewalla DNS (fixes laptop/other-device timeout issues)
 - Scripts are read-only on Firewalla except for explicit QoS/enforcement sync commands
 - No Firewalla OS or app modification required — files live in `/home/pi/gaming-tools/`

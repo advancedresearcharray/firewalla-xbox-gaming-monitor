@@ -36,7 +36,10 @@ extra_args = sys.argv[9:]
 wire_mode = "--wire" in extra_args
 minimal_mode = "--minimal" in extra_args
 critical_mode = "--critical" in extra_args
+deep_packets = "--deep-packets" in extra_args
 xbox_mac = (xbox_mac or "").upper().replace("-", ":")
+TCPDUMP_COUNT = 400 if deep_packets else 250
+PACKET_RECORD_LIMIT = 200 if deep_packets else 100
 
 
 def read_mem_available_mb():
@@ -431,6 +434,75 @@ def parse_tcpdump_endpoint(raw):
         return raw.rsplit(":", 1)[0]
     return raw
 
+
+def parse_tcpdump_host_port(raw):
+    raw = raw.rstrip(":")
+    host = parse_tcpdump_endpoint(raw)
+    port = None
+    if "." in raw and ":" not in raw.split(".")[-1]:
+        tail = raw.rsplit(".", 1)[-1]
+        if tail.isdigit():
+            port = int(tail)
+    elif raw.count(":") > 1 and raw.rsplit(":", 1)[-1].isdigit():
+        port = int(raw.rsplit(":", 1)[-1])
+    return host, port
+
+
+def parse_tcpdump_line(line, target_addrs):
+    is_v4 = " IP " in line
+    is_v6 = " IP6 " in line
+    if not is_v4 and not is_v6:
+        return None
+    parts = line.split()
+    if len(parts) < 6:
+        return None
+    try:
+        length = int(parts[-1])
+    except ValueError:
+        length = 0
+    src_raw, dst_raw = parts[2], parts[4]
+    src_host, src_port = parse_tcpdump_host_port(src_raw)
+    dst_host, dst_port = parse_tcpdump_host_port(dst_raw)
+    tail = " ".join(parts[5:-2]) if len(parts) > 6 else ""
+    proto = "unknown"
+    flags = ""
+    if " UDP" in tail or tail.startswith("UDP"):
+        proto = "udp"
+    elif " TCP" in tail or tail.startswith("TCP"):
+        proto = "tcp"
+        fm = re.search(r"\[([^\]]+)\]", tail)
+        if fm:
+            flags = fm.group(1)
+    elif " ICMP" in tail or tail.startswith("ICMP"):
+        proto = "icmp"
+    direction = None
+    remote = None
+    local_port = None
+    remote_port = None
+    if addr_match(src_host, target_addrs) or addr_match(src_raw, target_addrs):
+        direction = "out"
+        remote = dst_host
+        local_port = src_port
+        remote_port = dst_port
+    elif addr_match(dst_host, target_addrs) or addr_match(dst_raw, target_addrs):
+        direction = "in"
+        remote = src_host
+        local_port = dst_port
+        remote_port = src_port
+    else:
+        return None
+    return {
+        "direction": direction,
+        "proto": proto,
+        "flags": flags,
+        "length": length,
+        "remote": remote,
+        "localPort": local_port,
+        "remotePort": remote_port,
+        "src": src_host,
+        "dst": dst_host,
+    }
+
 target_ipv6 = discover_ipv6(xbox_mac, lan)
 target_addrs = [target_ip]
 if target_ipv6:
@@ -663,10 +735,15 @@ sample_bytes = 0
 sample_in = 0
 sample_out = 0
 flow_map = {}
+flow_packets = {}
+flow_proto = {}
+packet_records = []
+inbound_remotes = set()
+outbound_remotes = set()
 
 if online and lim["tcpdump"]:
     host_filter = " or ".join(f"host {addr}" for addr in target_addrs)
-    tcpdump_cmd = ["sudo", "-n", "tcpdump", "-ni", lan, "-q", "-c", "250", host_filter]
+    tcpdump_cmd = ["sudo", "-n", "tcpdump", "-ni", lan, "-q", "-c", str(TCPDUMP_COUNT), host_filter]
     try:
         proc = subprocess.run(
             tcpdump_cmd, capture_output=True, text=True, timeout=5, check=False
@@ -676,30 +753,64 @@ if online and lim["tcpdump"]:
         dump_lines = []
 
     for line in dump_lines:
-        is_v4 = " IP " in line
-        is_v6 = " IP6 " in line
-        if not is_v4 and not is_v6:
+        pkt = parse_tcpdump_line(line, target_addrs)
+        if not pkt:
             continue
-        parts = line.split()
-        if len(parts) < 6:
-            continue
-        src = parse_tcpdump_endpoint(parts[2])
-        dst = parse_tcpdump_endpoint(parts[4])
-        try:
-            length = int(parts[-1])
-        except ValueError:
-            length = 0
+        length = pkt["length"]
+        direction = pkt["direction"]
+        remote = pkt["remote"] or "unknown"
         sample_packets += 1
         sample_bytes += length
-        if addr_match(src, target_addrs):
+        if direction == "out":
             sample_out += length
-            key = ("out", dst)
-        elif addr_match(dst, target_addrs):
-            sample_in += length
-            key = ("in", src)
+            outbound_remotes.add(remote)
         else:
-            continue
+            sample_in += length
+            inbound_remotes.add(remote)
+        key = (direction, remote)
         flow_map[key] = flow_map.get(key, 0) + length
+        flow_packets[key] = flow_packets.get(key, 0) + 1
+        flow_proto[key] = pkt["proto"]
+        if len(packet_records) < PACKET_RECORD_LIMIT:
+            rec = {
+                "dir": direction,
+                "proto": pkt["proto"],
+                "len": length,
+                "remote": remote,
+                "remotePort": pkt["remotePort"],
+                "localPort": pkt["localPort"],
+            }
+            if pkt["flags"]:
+                rec["flags"] = pkt["flags"]
+            packet_records.append(rec)
+
+    tiny_in = sum(1 for p in packet_records if p["dir"] == "in" and p["len"] < 80)
+    large_in = sum(1 for p in packet_records if p["dir"] == "in" and p["len"] > 1200)
+    tiny_out = sum(1 for p in packet_records if p["dir"] == "out" and p["len"] < 80)
+    udp_in = sum(1 for p in packet_records if p["dir"] == "in" and p["proto"] == "udp")
+    tcp_syn_in = sum(
+        1
+        for p in packet_records
+        if p["dir"] == "in" and p["proto"] == "tcp" and "S" in p.get("flags", "")
+    )
+    in_lens = [p["len"] for p in packet_records if p["dir"] == "in"]
+    out_lens = [p["len"] for p in packet_records if p["dir"] == "out"]
+    packet_stats = {
+        "total": sample_packets,
+        "inbound": sum(1 for p in packet_records if p["dir"] == "in"),
+        "outbound": sum(1 for p in packet_records if p["dir"] == "out"),
+        "tinyInbound": tiny_in,
+        "tinyOutbound": tiny_out,
+        "largeInbound": large_in,
+        "uniqueInboundRemotes": len(inbound_remotes),
+        "uniqueOutboundRemotes": len(outbound_remotes),
+        "udpInbound": udp_in,
+        "tcpSynInbound": tcp_syn_in,
+        "avgInboundSize": round(sum(in_lens) / len(in_lens), 1) if in_lens else 0,
+        "avgOutboundSize": round(sum(out_lens) / len(out_lens), 1) if out_lens else 0,
+    }
+else:
+    packet_stats = {"total": 0, "enabled": False}
 
 top_flows = sorted(
     [
@@ -707,6 +818,9 @@ top_flows = sorted(
             "direction": d,
             "endpoint": ep,
             "bytes": b,
+            "packets": flow_packets.get((d, ep), 0),
+            "proto": flow_proto.get((d, ep), "unknown"),
+            "avgSize": round(b / max(flow_packets.get((d, ep), 1), 1)),
             **enrich_remote(parse_tcpdump_endpoint(ep)),
         }
         for (d, ep), b in flow_map.items()
@@ -925,6 +1039,12 @@ payload = {
     "flowSource": flow_source,
     "destinations": dest_slice if pressure_mode == "normal" else [],
     "topFlows": top_flows[: lim["top"]],
+    "packetCapture": {
+        "enabled": bool(lim["tcpdump"]),
+        "records": packet_records[: min(PACKET_RECORD_LIMIT, 80 if not deep_packets else 160)],
+        "stats": packet_stats,
+        "deep": deep_packets,
+    },
     "sqm": {
         "uploadQdisc": cake_upload,
         "downloadQdisc": cake_download,
