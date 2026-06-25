@@ -12,3 +12,5 @@ data/ai-host-stats.json
 data/runtime-policy.json
 warzone-lobby-sentinel/rust/target/
 warzone-lobby-sentinel/data/*.json
+warzone-lobby-sentinel/**/__pycache__/
+warzone-lobby-sentinel/bin/warzone-sentinel
